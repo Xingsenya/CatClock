@@ -523,30 +523,146 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     else:
         head_rect = QRectF(cx - 0.44 * s, cy - 0.42 * s, 0.88 * s, 0.86 * s)
 
-    # ---- 尾巴（最底层，从头侧伸出摆动） ----
+    # ---- 尾巴（最底层；按物种分样式，不再所有角色共用猫尾） ----
     if tail_phase is not None:
         if body:
             bx, by = cx - 0.46 * s, cy + 0.66 * s
         else:
             bx, by = cx - 0.38 * s, cy + 0.32 * s
         sw = math.sin(tail_phase) * 0.18 * s
-        tail = QPainterPath()
-        tail.moveTo(bx, by)
-        tail.cubicTo(bx - 0.18 * s, by + 0.08 * s,
-                     bx - 0.16 * s + sw, by - 0.14 * s,
-                     bx - 0.04 * s + sw * 1.7, by - 0.24 * s)
-        p.setPen(QPen(QColor(colors["fur_d"]), max(2.0, s * 0.055), Qt.PenStyle.SolidLine,
-                      Qt.PenCapStyle.RoundCap))
+        ttype = _TAIL.get(shape, "cat")
+        fd = QColor(colors["fur_d"])
+        fl = QColor(colors["fur_l"])
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawPath(tail)
-        p.setPen(QPen(QColor(colors["fur_l"]), max(1.0, s * 0.020), Qt.PenStyle.SolidLine,
-                      Qt.PenCapStyle.RoundCap))
-        tail2 = QPainterPath()
-        tail2.moveTo(bx - 0.02 * s, by - 0.015 * s)
-        tail2.cubicTo(bx - 0.17 * s, by + 0.05 * s,
-                      bx - 0.15 * s + sw, by - 0.13 * s,
-                      bx - 0.05 * s + sw * 1.6, by - 0.21 * s)
-        p.drawPath(tail2)
+
+        if ttype == "puff":                    # 绒球尾（兔 / 羊）
+            pr = s * (0.145 if shape == "rabbit" else 0.105)
+            px, py = bx - 0.09 * s, by - 0.05 * s
+            ball_c = QColor(colors.get("wool") or colors["fur_l"])
+            p.setPen(outline)
+            p.setBrush(ball_c)
+            p.drawEllipse(QRectF(px - pr, py - pr, 2 * pr, 2 * pr))
+            p.setPen(Qt.PenStyle.NoPen)        # 边缘小绒毛
+            for i in range(7):
+                a = math.radians(i * 51 + 12)
+                p.drawEllipse(QRectF(px + math.cos(a) * pr * 0.86 - pr * 0.33,
+                                     py + math.sin(a) * pr * 0.86 - pr * 0.33,
+                                     pr * 0.66, pr * 0.66))
+        elif ttype == "curl_up":               # 狗：短粗上翘，摇得欢
+            k = math.sin(tail_phase * 2.4) * 0.11 * s
+            p.setPen(QPen(fd, max(2.4, s * 0.078), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            tp = QPainterPath()
+            tp.moveTo(bx, by + 0.02 * s)
+            tp.cubicTo(bx - 0.11 * s + k, by - 0.02 * s,
+                       bx - 0.18 * s + k * 1.2, by - 0.22 * s,
+                       bx - 0.07 * s + k * 1.5, by - 0.35 * s)
+            p.drawPath(tp)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(fl)
+            p.drawEllipse(QRectF(bx - 0.115 * s + k * 1.5, by - 0.42 * s,
+                                 s * 0.095, s * 0.095))
+        elif ttype == "curl":                  # 猪：卷曲小尾
+            p.setPen(QPen(fd, max(1.8, s * 0.050), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            r0 = s * 0.082
+            p.drawArc(QRectF(bx - 0.13 * s - r0, by - 0.20 * s - r0, 2 * r0, 2 * r0),
+                      -25 * 16, 300 * 16)
+            p.drawArc(QRectF(bx - 0.13 * s - r0 * 0.52, by - 0.17 * s - r0 * 0.52,
+                             2 * r0 * 0.52, 2 * r0 * 0.52), 115 * 16, 300 * 16)
+        elif ttype == "brush":                 # 马 / 牛：下垂刷子尾
+            k = math.sin(tail_phase * 1.3) * 0.07 * s
+            tip_c = QColor(colors.get("mane") or colors["fur_d"])
+            p.setPen(QPen(fd, max(2.6, s * 0.070), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            ex_, ey_ = bx - 0.11 * s + k, by + 0.19 * s
+            p.drawLine(QPointF(bx, by - 0.05 * s), QPointF(ex_, ey_))
+            p.setPen(QPen(tip_c, max(1.4, s * 0.028), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            for dx in (-0.055, -0.018, 0.020):
+                p.drawLine(QPointF(ex_, ey_ - 0.02 * s),
+                           QPointF(ex_ + dx * s, ey_ + 0.15 * s))
+        elif ttype == "fin":                   # 龙：粗锥尾 + 侧鳍
+            k = math.sin(tail_phase * 1.1) * 0.10 * s
+            p.setPen(QPen(fd, max(3.0, s * 0.085), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            tp = QPainterPath()
+            tp.moveTo(bx + 0.02 * s, by)
+            tp.cubicTo(bx - 0.17 * s + k, by + 0.05 * s,
+                       bx - 0.32 * s + k * 1.5, by - 0.10 * s,
+                       bx - 0.42 * s + k * 2, by - 0.28 * s)
+            p.drawPath(tp)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor("#8ECCB8"))
+            for fx, fy, fs in ((bx - 0.15 * s + k * 0.7, by + 0.03 * s, 0.095),
+                               (bx - 0.29 * s + k * 1.3, by - 0.07 * s, 0.078)):
+                fp = QPainterPath()
+                fp.moveTo(fx, fy)
+                fp.lineTo(fx - fs * s * 0.9, fy - fs * s * 1.25)
+                fp.lineTo(fx + fs * s * 0.30, fy - fs * s * 0.25)
+                fp.closeSubpath()
+                p.drawPath(fp)
+        elif ttype == "coil":                  # 蛇：无尾，身后盘绕一圈
+            p.setPen(QPen(fd, max(2.6, s * 0.078), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            p.drawArc(QRectF(bx - 0.34 * s, by - 0.14 * s, 0.66 * s, 0.44 * s),
+                      190 * 16, 210 * 16)
+            p.setPen(QPen(fl, max(1.2, s * 0.026), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            p.drawArc(QRectF(bx - 0.25 * s, by - 0.05 * s, 0.48 * s, 0.30 * s),
+                      205 * 16, 170 * 16)
+        elif ttype == "feather":               # 鸡：扇形尾羽
+            fc = QColor(colors.get("comb") or "#E0524C")
+            p.setPen(QPen(fc, max(2.0, s * 0.048), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            for i in range(4):
+                a = math.radians(98 + i * 21 + math.sin(tail_phase * 0.8 + i) * 8)
+                L = s * (0.30 if i in (1, 2) else 0.24)
+                p.drawLine(QPointF(bx, by - 0.02 * s),
+                           QPointF(bx + math.cos(a) * L, by - math.sin(a) * L - 0.02 * s))
+            p.setPen(QPen(QColor("#C43C38"), max(1.0, s * 0.020)))
+            p.drawLine(QPointF(bx, by - 0.02 * s),
+                       QPointF(bx + math.cos(math.radians(128)) * s * 0.30,
+                               by - math.sin(math.radians(128)) * s * 0.30 - 0.02 * s))
+        elif ttype == "whip":                  # 鼠：细长鞭尾
+            k = math.sin(tail_phase * 1.5)
+            p.setPen(QPen(fd, max(1.2, s * 0.026), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            tp = QPainterPath()
+            tp.moveTo(bx, by)
+            tp.cubicTo(bx - 0.26 * s, by + 0.02 * s + k * 0.05 * s,
+                       bx - 0.44 * s, by - 0.11 * s + k * 0.13 * s,
+                       bx - 0.58 * s, by - 0.01 * s + k * 0.20 * s)
+            p.drawPath(tp)
+        elif ttype == "long":                  # 猴：长弯尾，末端卷
+            k = math.sin(tail_phase * 1.4) * 0.13 * s
+            p.setPen(QPen(fd, max(2.0, s * 0.046), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            tp = QPainterPath()
+            tp.moveTo(bx, by)
+            tp.cubicTo(bx - 0.27 * s + k, by + 0.11 * s,
+                       bx - 0.43 * s + k, by - 0.14 * s,
+                       bx - 0.30 * s + k, by - 0.34 * s)
+            p.drawPath(tp)
+            p.drawArc(QRectF(bx - 0.38 * s + k, by - 0.44 * s, s * 0.15, s * 0.15),
+                      80 * 16, 280 * 16)
+        else:                                  # 默认猫尾：细长弯钩
+            tail = QPainterPath()
+            tail.moveTo(bx, by)
+            tail.cubicTo(bx - 0.18 * s, by + 0.08 * s,
+                         bx - 0.16 * s + sw, by - 0.14 * s,
+                         bx - 0.04 * s + sw * 1.7, by - 0.24 * s)
+            p.setPen(QPen(fd, max(2.0, s * 0.055), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            p.drawPath(tail)
+            p.setPen(QPen(fl, max(1.0, s * 0.020), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            tail2 = QPainterPath()
+            tail2.moveTo(bx - 0.02 * s, by - 0.015 * s)
+            tail2.cubicTo(bx - 0.17 * s, by + 0.05 * s,
+                          bx - 0.15 * s + sw, by - 0.13 * s,
+                          bx - 0.05 * s + sw * 1.6, by - 0.21 * s)
+            p.drawPath(tail2)
 
     # ---- 角（牛/龙，耳根被头盖住，先画） ----
     if shape in ("ox", "dragon"):
@@ -1373,6 +1489,11 @@ class RestDaysDialog(QDialog):
 # 各物种"头顶以上"的延伸系数（耳朵/角/鸡冠），半身模式用来自动定尺寸防出界
 _TOP_EXT = {"rabbit": 0.86, "ox": 0.76, "dragon": 0.70,
            "sheep": 0.72, "rooster": 0.64, "horse": 0.64}
+
+# 各物种的尾巴样式（默认 cat = 细长弯钩猫尾）
+_TAIL = {"rabbit": "puff", "sheep": "puff", "dog": "curl_up", "pig": "curl",
+         "horse": "brush", "ox": "brush", "dragon": "fin", "snake": "coil",
+         "rooster": "feather", "rat": "whip", "monkey": "long"}
 
 # 状态 → 手上的道具
 PROP_BY_WEATHER = {"rain": "umbrella", "thunder": "umbrella", "snow": "scarf"}
