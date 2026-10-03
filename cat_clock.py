@@ -333,6 +333,24 @@ def rr(x, y, w, h, r):
     return p
 
 
+# 字体全局缓存：每帧新建 QFont 会反复触发字体引擎查询，
+# 在某些装了桌面水印/EDR  hooks 的机器上会导致 native fail-fast
+_FONT_CACHE = {}
+
+
+def font(name, size, weight=None, style_hint=None):
+    key = (name, size, weight, style_hint)
+    f = _FONT_CACHE.get(key)
+    if f is None:
+        f = QFont(name, size)
+        if weight is not None:
+            f.setWeight(weight)
+        if style_hint is not None:
+            f.setStyleHint(style_hint)
+        _FONT_CACHE[key] = f
+    return f
+
+
 # ======================================================================
 # 猫猫绘制
 # ======================================================================
@@ -1295,9 +1313,19 @@ class CatClock(QWidget):
         if self.idle and self.t0 - self.idle[1] > 3.0:
             self.idle = None
             self.idle_next = self.t0 + random.uniform(20, 45)
+        # 阶段切换：发通知
+        prev_phase = self.last_phase
+        phase = self._status()[0]
+        if prev_phase and phase != prev_phase:
+            if phase == "off" and self.cfg.get("notify_off", True):
+                self.notify("下班啦～", "辛苦了，快去享受生活！", True)
+            elif phase == "work" and prev_phase in ("pre", "rest") \
+                    and self.cfg.get("notify_work", True):
+                self.notify("该上班啦", "新的一天，加油～", False)
+        self.last_phase = phase
         # 久坐提醒：仅工作中计数（休息/下班后不打扰），进入工作态重新计时
         if phase == "work":
-            if self.last_phase != "work":
+            if prev_phase != "work":
                 self.last_hydrate = self.t0
             if self.cfg.get("hydrate", True) and self.t0 - self.last_hydrate >= 3600:
                 self.last_hydrate = self.t0
@@ -1305,15 +1333,6 @@ class CatClock(QWidget):
                 self.notify("该活动一下啦", "喝口水，起来走走～", False)
         else:
             self.last_hydrate = self.t0
-        # 阶段切换：发通知
-        phase = self._status()[0]
-        if self.last_phase and phase != self.last_phase:
-            if phase == "off" and self.cfg.get("notify_off", True):
-                self.notify("下班啦～", "辛苦了，快去享受生活！", True)
-            elif phase == "work" and self.last_phase in ("pre", "rest") \
-                    and self.cfg.get("notify_work", True):
-                self.notify("该上班啦", "新的一天，加油～", False)
-        self.last_phase = phase
         self.update()
 
     def _quote(self):
@@ -1321,7 +1340,7 @@ class CatClock(QWidget):
         now = datetime.now()
         h = now.hour + now.minute / 60.0
         if now.weekday() == 4:                       # 周五专属
-            for a, b, pool in QUOTES_FRIDAY.items():
+            for (a, b), pool in QUOTES_FRIDAY.items():
                 if a <= h < b:
                     return pool[self.quote_i % len(pool)]
         for a, b, pool in QUOTES:
@@ -1469,11 +1488,11 @@ class CatClock(QWidget):
         # ---- 主文字区 ----
         if phase == "rest":
             p.setPen(QColor(st["pink"]))
-            p.setFont(QFont("Microsoft YaHei", 20, QFont.Weight.Bold))
+            p.setFont(font("Microsoft YaHei", 20, QFont.Weight.Bold))
             p.drawText(QRectF(x, H / 2 - 34, tw, 36),
                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "今天休息～")
             p.setPen(QColor(st["sub"]))
-            p.setFont(QFont("Microsoft YaHei", 9))
+            p.setFont(font("Microsoft YaHei", 9))
             now = datetime.now()
             p.drawText(QRectF(x, H / 2 + 2, tw, 18),
                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
@@ -1487,15 +1506,13 @@ class CatClock(QWidget):
             # 倒计时数字
             if phase == "off":
                 p.setPen(QColor(st["pink"]))
-                p.setFont(QFont("Microsoft YaHei", 20 if not mini else 18, QFont.Weight.Bold))
+                p.setFont(font("Microsoft YaHei", 20 if not mini else 18, QFont.Weight.Bold))
                 p.drawText(QRectF(x, 14, tw, 36),
                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "下班啦～")
             else:
                 fcol = QColor(st["pink"] if excited else st["text"])
                 size = 24 if mini else (26 if show_sec else 30)
-                f = QFont("Segoe UI", size, QFont.Weight.Bold)
-                f.setStyleHint(QFont.StyleHint.SansSerif)
-                p.setFont(f)
+                p.setFont(font("Segoe UI", size, QFont.Weight.Bold, QFont.StyleHint.SansSerif))
                 cy0 = (H / 2 - 38) if mini else 12
                 if show_sec:
                     txt = "%02d:%02d:%02d" % (h, m, s)
@@ -1521,7 +1538,7 @@ class CatClock(QWidget):
 
             # 行1：天气 + 距下班
             p.setPen(QColor(st["sub"]))
-            p.setFont(QFont("Microsoft YaHei", 9))
+            p.setFont(font("Microsoft YaHei", 9))
             wx = ""
             if self.weather and not mini:
                 wx = "%s %d°C · " % (self.weather["text"], self.weather["temp"])
@@ -1558,7 +1575,7 @@ class CatClock(QWidget):
                            255 if k < 1.8 else max(0, int(255 * (2.5 - k) / 0.7)))
                 if msg:
                     text, alpha = msg
-                    p.setFont(QFont("Microsoft YaHei", 9))
+                    p.setFont(font("Microsoft YaHei", 9))
                     fm = p.fontMetrics()
                     bw3 = fm.horizontalAdvance(text) + 26
                     bh3 = 18
