@@ -4,7 +4,9 @@ CatClock —— 桌面可爱猫猫 · 下班倒计时挂件
 
 类似 Catime 的桌面悬浮小窗：多只可选猫猫 + 多套界面主题。
 支持拖动、右键菜单（角色 / 样式 / 上下班时间 / 迷你模式 / 开机自启 / 置顶）、托盘图标。
-智能状态：上班前 / 工作中（含进度条）/ 下班后 / 周末。
+智能状态：上班前 / 工作中（含进度条）/ 下班后 / 休息日。
+智能交互：离开打瞌睡（GetLastInputInfo）、回来打招呼、下班前 30/10 分钟预告、
+上班前提醒、休息日前夜提示、天气联动语录、久坐文案轮换、整点报时防打扰。
 """
 
 import json
@@ -58,6 +60,8 @@ DEFAULTS = {
     "city": "",           # 天气城市（留空不显示天气）
     "payday": 0,          # 每月发薪日（1-31，0=不显示）
     "hydrate": True,      # 每小时久坐提醒
+    "notify_pre": True,   # 下班前 30/10 分钟预告
+    "afk": True,          # 离开时猫打瞌睡
     "scale": 1.0,         # 整体缩放（0.6-1.6，滚轮调节）
 }
 
@@ -79,6 +83,27 @@ QUOTES_FRIDAY = {
     (16.5, 17.5): ["周五！忍住，就快了", "周五的 4 点，你懂的"],
     (17.5, 24.0): ["周末启动！", "周五晚上，人间值得"],
 }
+
+# ======================================================================
+# 天气联动语录（晴雨雪雷各有专属，与时段语录穿插出现）
+# ======================================================================
+WEATHER_QUOTES = {
+    "rain": ["下雨了，出门记得带伞", "雨天适合摸鱼发呆"],
+    "thunder": ["打雷了，猫有点怕怕", "雷雨天，早点回家"],
+    "snow": ["下雪啦，注意保暖", "下雪天适合许愿哦"],
+    "sun": ["今天阳光不错，晒晒心情", "大晴天，搬砖都有劲"],
+    "cloud-sun": ["多云转晴，心情也是"],
+    "cloud": ["阴天，适合闷头干活"],
+    "fog": ["雾好大，路上慢点"],
+}
+
+# 久坐提醒文案轮换
+HYDRATE_MSGS = [
+    "喝口水，起来走走～",
+    "活动一下，看看远处～",
+    "肩颈放松 30 秒，继续战斗",
+    "站起来倒杯水，猫替你盯着进度",
+]
 
 # ======================================================================
 # 角色表
@@ -336,6 +361,26 @@ def rr(x, y, w, h, r):
 # 字体全局缓存：每帧新建 QFont 会反复触发字体引擎查询，
 # 在某些装了桌面水印/EDR  hooks 的机器上会导致 native fail-fast
 _FONT_CACHE = {}
+
+
+def user_idle_seconds():
+    """用户无键盘/鼠标输入的时长（秒），读取失败返回 0"""
+    try:
+        import ctypes
+
+        class LASTINPUTINFO(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_ulong)]
+
+        li = LASTINPUTINFO()
+        li.cbSize = ctypes.sizeof(LASTINPUTINFO)
+        if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(li)):
+            return 0.0
+        diff = (ctypes.windll.kernel32.GetTickCount() - li.dwTime) & 0xFFFFFFFF
+        if diff > 0x7FFFFFFF:      # 异常值兜底
+            return 0.0
+        return diff / 1000.0
+    except Exception:
+        return 0.0
 
 
 def font(name, size, weight=None, style_hint=None):
@@ -831,6 +876,14 @@ class CatClock(QWidget):
         self.last_hour_mark = -1
         self.hover_cat_t = 0.0     # 悬停猫头计时
         self.meow_bubble_t = 99.0  # 摸猫呼噜气泡
+        self.bubble_text = None    # 通用气泡文案
+        self.bubble_t = 99.0       # 通用气泡计时
+        self.afk = False           # 用户离开（猫打瞌睡）
+        self._press_pos = None     # 按下时的全局坐标（区分点击/拖动）
+        self._press_on_cat = False
+        self._prev_secs = None     # 上一帧剩余秒（跨点检测用）
+        self._fired_marks = set()  # 本阶段已发过的预告（1800/600）
+        self._rest_eve_day = None  # 已提示过的"明天休息"日期
 
         self.setWindowTitle(APP_NAME)
         self.set_window_flags()
@@ -989,6 +1042,12 @@ class CatClock(QWidget):
         self.act_hydrate = QAction("每小时久坐提醒", self, checkable=True)
         self.act_hydrate.setChecked(bool(self.cfg.get("hydrate", True)))
         self.act_hydrate.triggered.connect(lambda on: self.toggle_cfg("hydrate", on))
+        self.act_npre = QAction("下班前预告（30/10 分钟）", self, checkable=True)
+        self.act_npre.setChecked(bool(self.cfg.get("notify_pre", True)))
+        self.act_npre.triggered.connect(lambda on: self.toggle_cfg("notify_pre", on))
+        self.act_afk = QAction("离开时猫打瞌睡", self, checkable=True)
+        self.act_afk.setChecked(bool(self.cfg.get("afk", True)))
+        self.act_afk.triggered.connect(lambda on: self.toggle_cfg("afk", on))
 
         # 大小子菜单
         self.size_menu = QMenu("大小（也可在窗口上滚轮）", self)
@@ -1038,6 +1097,8 @@ class CatClock(QWidget):
         self.menu.addAction(self.act_nwork)
         self.menu.addAction(self.act_sound)
         self.menu.addAction(self.act_hydrate)
+        self.menu.addAction(self.act_npre)
+        self.menu.addAction(self.act_afk)
         self.menu.addSeparator()
         self.menu.addMenu(self.size_menu)
         self.menu.addSeparator()
@@ -1219,9 +1280,8 @@ class CatClock(QWidget):
             cs = 60 if mini else 84
             ccx = 54 if mini else 58
             ccy = (self.H_MINI if mini else self.H_FULL) / 2
-            if (lx - ccx) ** 2 + (ly - ccy) ** 2 < (cs * 0.52) ** 2:
-                self.meow_t = 0.0          # 摸到猫了
-                self.meow_bubble_t = 0.0   # 呼噜气泡
+            self._press_on_cat = (lx - ccx) ** 2 + (ly - ccy) ** 2 < (cs * 0.52) ** 2
+            self._press_pos = e.globalPosition().toPoint()
             self.drag_off = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
             e.accept()
 
@@ -1257,6 +1317,13 @@ class CatClock(QWidget):
             self._clamp()
             self.cfg["pos"] = [self.x(), self.y()]
             save_cfg(self.cfg)
+        # 点击（非拖动）且按在猫头上才算摸到猫
+        if (self._press_pos is not None and self._press_on_cat
+                and (e.globalPosition().toPoint() - self._press_pos).manhattanLength() < 10):
+            self.meow_t = 0.0
+            self.meow_bubble_t = 0.0
+        self._press_pos = None
+        self._press_on_cat = False
 
     def mouseDoubleClickEvent(self, e):
         pass
@@ -1297,13 +1364,23 @@ class CatClock(QWidget):
             self.hourly_t += 0.1
         if self.meow_bubble_t < 2.5:
             self.meow_bubble_t += 0.1
-        # 整点报时
+        if self.bubble_t < 3.5:
+            self.bubble_t += 0.1
+        # 整点报时：7-22 点且非休息日（深夜和休息不打扰）
         now = datetime.now()
-        if now.minute == 0 and now.second < 3 and self.last_hour_mark != now.hour:
+        phase, start, end, secs, pct = self._status()
+        if (now.minute == 0 and now.second < 3 and self.last_hour_mark != now.hour
+                and 7 <= now.hour <= 22 and phase != "rest"):
             self.last_hour_mark = now.hour
             self.hourly_t = 0.0
-        # 待机小动作状态机（午后 13-14 点更容易打哈欠）
-        if self.idle is None and self.t0 >= self.idle_next:
+        # 用户离开检测：走开 3 分钟猫打瞌睡，回来后打招呼并重新计久坐
+        was_afk = self.afk
+        self.afk = bool(self.cfg.get("afk", True)) and user_idle_seconds() > 180
+        if was_afk and not self.afk:
+            self._say("你回来啦，猫想你啦～")
+            self.last_hydrate = self.t0
+        # 待机小动作状态机（午后 13-14 点更容易打哈欠；打瞌睡时不抢戏）
+        if self.idle is None and self.t0 >= self.idle_next and not self.afk:
             hour = now.hour + now.minute / 60.0
             if 13.0 <= hour < 14.0:
                 name = "yawn" if random.random() < 0.7 else "stretch"
@@ -1315,34 +1392,69 @@ class CatClock(QWidget):
             self.idle_next = self.t0 + random.uniform(20, 45)
         # 阶段切换：发通知
         prev_phase = self.last_phase
-        phase = self._status()[0]
         if prev_phase and phase != prev_phase:
+            self._fired_marks.clear()
             if phase == "off" and self.cfg.get("notify_off", True):
                 self.notify("下班啦～", "辛苦了，快去享受生活！", True)
             elif phase == "work" and prev_phase in ("pre", "rest") \
                     and self.cfg.get("notify_work", True):
                 self.notify("该上班啦", "新的一天，加油～", False)
         self.last_phase = phase
-        # 久坐提醒：仅工作中计数（休息/下班后不打扰），进入工作态重新计时
+        # 下班前 30 / 10 分钟预告（跨点检测，每阶段各发一次）
+        if phase == "work" and self.cfg.get("notify_pre", True) \
+                and self._prev_secs is not None:
+            for mark in (1800, 600):
+                if self._prev_secs > mark >= secs and mark not in self._fired_marks:
+                    self._fired_marks.add(mark)
+                    self.notify("还有 %d 分钟就下班啦" % (mark // 60),
+                                "坚持住，猫陪你一起冲～", False)
+        # 上班前 10 分钟提醒
+        if phase == "pre" and self.cfg.get("notify_work", True) \
+                and self._prev_secs is not None \
+                and self._prev_secs > 600 >= secs and 600 not in self._fired_marks:
+            self._fired_marks.add(600)
+            self.notify("10 分钟后上班", "准备好了吗，搬砖人～", False)
+        # 休息日前夜提示（21 点后，每天一次）
+        if now.hour >= 21 and phase != "rest":
+            tomorrow = (now + timedelta(days=1)).date()
+            if tomorrow.weekday() in self.cfg.get("rest_days", [5, 6]) \
+                    and self._rest_eve_day != tomorrow:
+                self._rest_eve_day = tomorrow
+                self._say("明天就休息了，别熬太晚～")
+        # 久坐提醒：仅工作中计数，用户不在座位时不打扰（回来后重新计时）
         if phase == "work":
             if prev_phase != "work":
                 self.last_hydrate = self.t0
-            if self.cfg.get("hydrate", True) and self.t0 - self.last_hydrate >= 3600:
+            if self.cfg.get("hydrate", True) and not self.afk \
+                    and self.t0 - self.last_hydrate >= 3600:
                 self.last_hydrate = self.t0
                 self.hydrate_t = 0.0
-                self.notify("该活动一下啦", "喝口水，起来走走～", False)
+                self.notify("该活动一下啦", random.choice(HYDRATE_MSGS), False)
         else:
             self.last_hydrate = self.t0
+        self._prev_secs = secs
         self.update()
 
+    def _say(self, text, dur=3.5):
+        """让猫说话（通用气泡）"""
+        self.bubble_text = text
+        self.bubble_t = 0.0
+
     def _quote(self):
-        """当前时段的打工人语录（周五有专属池）"""
+        """当前时段的打工人语录（周五专属池 + 天气联动穿插）"""
         now = datetime.now()
         h = now.hour + now.minute / 60.0
         if now.weekday() == 4:                       # 周五专属
             for (a, b), pool in QUOTES_FRIDAY.items():
                 if a <= h < b:
                     return pool[self.quote_i % len(pool)]
+        w = self.weather
+        if w and w.get("kind") in WEATHER_QUOTES and self.quote_i % 3 == 0:
+            pool = WEATHER_QUOTES[w["kind"]]
+            msg = pool[(self.quote_i // 3) % len(pool)]
+            if w.get("temp", 0) >= 34:
+                msg += "，多喝水"
+            return msg
         for a, b, pool in QUOTES:
             if a <= h < b:
                 return pool[self.quote_i % len(pool)]
@@ -1431,8 +1543,8 @@ class CatClock(QWidget):
         p.drawPath(rr(pad, pad, W - 2 * pad, H - 2 * pad, 24))
 
         phase, start, end, secs, pct = self._status()
-        excited = phase == "work" and secs <= 1800
-        sleepy = phase == "off"
+        excited = phase == "work" and secs <= 1800 and not self.afk
+        sleepy = phase == "off" or self.afk
         show_sec = self.cfg.get("show_sec", True)
         if show_sec:
             h, rem = divmod(secs, 3600)
@@ -1573,6 +1685,10 @@ class CatClock(QWidget):
                     k = self.meow_bubble_t
                     msg = ("呼噜噜～" if self.meow_t < 1.0 else "喵～",
                            255 if k < 1.8 else max(0, int(255 * (2.5 - k) / 0.7)))
+                elif self.bubble_t < 3.5:
+                    k = self.bubble_t
+                    msg = (self.bubble_text or "",
+                           255 if k < 2.6 else max(0, int(255 * (3.5 - k) / 0.9)))
                 if msg:
                     text, alpha = msg
                     p.setFont(font("Microsoft YaHei", 9))
@@ -1589,7 +1705,7 @@ class CatClock(QWidget):
                     p.drawText(QRectF(bx3, by3 - 1, bw3, bh3 + 2),
                                Qt.AlignmentFlag.AlignCenter, text)
                     p.setOpacity(1.0)
-                elif phase == "work" and not excited:
+                elif phase == "work" and not excited and not self.afk:
                     q = self._quote()
                     if q:
                         p.setPen(QColor(st["text"]))
