@@ -476,12 +476,18 @@ def font(name, size, weight=None, style_hint=None):
 # ======================================================================
 # 猫猫绘制
 # ======================================================================
-def _draw_paw(p, x, y, s, colors, outline, flip=1.0):
-    """画一只爪掌（猫手）：掌背 + 大肉垫 + 三颗小趾垫 + 分趾线。"""
+def _draw_paw(p, x, y, s, colors, outline, flip_x=False, flip_y=False):
+    """画一只爪掌（猫手）。flip_x/flip_y 控制肉垫朝向：
+    flip_x=True 肉垫翻向手掌内侧（左右手朝身体），flip_y=True 掌心朝上。"""
     r = s * 0.145
     p.setPen(outline)
     p.setBrush(QColor(colors["fur_l"]))
     p.drawEllipse(QRectF(x - r, y - r * 0.94, 2 * r, 1.88 * r))
+    # 肉垫整体按 flip_x/flip_y 镜像，让掌心方向正确
+    p.save()
+    p.translate(x, y)
+    p.scale(-1.0 if flip_x else 1.0, -1.0 if flip_y else 1.0)
+    p.translate(-x, -y)
     # 三颗小趾垫（沿掌上缘）
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(QColor(colors["nose"]))
@@ -501,6 +507,7 @@ def _draw_paw(p, x, y, s, colors, outline, flip=1.0):
     # 高光让肉垫有立体感
     p.setBrush(QColor(255, 255, 255, 90))
     p.drawEllipse(QRectF(x - r * 0.26, y - r * 0.02, r * 0.22, r * 0.16))
+    p.restore()
 
 
 def _draw_arm(p, sx, sy, ex, ey, bx, by, s, colors, outline):
@@ -1156,41 +1163,41 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     if body:
         sway = math.sin(t * 1.1) * 0.014 * s        # 呼吸带来的轻微摆动
         sy0 = cy + 0.38 * s                          # 肩线
-        # 默认姿态：双手自然垂在身体两侧（手肘向外微弓）
+        # 默认姿态：双手自然垂在身体两侧（掌心朝身体内侧）
         L = (cx - 0.33 * s, sy0, cx - 0.47 * s, cy + 0.86 * s + sway,
-             cx - 0.55 * s, cy + 0.60 * s)
+             cx - 0.55 * s, cy + 0.60 * s, True, False)
         R = (cx + 0.33 * s, sy0, cx + 0.47 * s, cy + 0.86 * s - sway,
-             cx + 0.55 * s, cy + 0.60 * s)
-        if prop == "coffee":                        # 双手捧杯到身前
+             cx + 0.55 * s, cy + 0.60 * s, True, False)
+        if prop == "coffee":                        # 双手捧杯到身前（掌心朝上）
             L = (cx - 0.33 * s, sy0, cx - 0.22 * s, cy + 0.87 * s + sway,
-                 cx - 0.46 * s, cy + 0.64 * s)
+                 cx - 0.46 * s, cy + 0.64 * s, False, True)
             R = (cx + 0.33 * s, sy0, cx + 0.22 * s, cy + 0.87 * s - sway,
-                 cx + 0.46 * s, cy + 0.64 * s)
-        elif prop == "coin":                        # 双手捧金币
+                 cx + 0.46 * s, cy + 0.64 * s, False, True)
+        elif prop == "coin":                        # 双手捧金币（掌心朝上）
             L = (cx - 0.33 * s, sy0, cx - 0.26 * s, cy + 0.86 * s + sway,
-                 cx - 0.48 * s, cy + 0.66 * s)
+                 cx - 0.48 * s, cy + 0.66 * s, False, True)
             R = (cx + 0.33 * s, sy0, cx + 0.26 * s, cy + 0.86 * s - sway,
-                 cx + 0.48 * s, cy + 0.66 * s)
-        elif prop == "bag":                         # 右手拎包（手臂垂下略外）
+                 cx + 0.48 * s, cy + 0.66 * s, False, True)
+        elif prop == "bag":                         # 右手拎包（掌心朝内/左）
             R = (cx + 0.33 * s, sy0, cx + 0.46 * s, cy + 0.80 * s - sway,
-                 cx + 0.55 * s, cy + 0.58 * s)
-        elif prop == "fan":                         # 右手举扇（手臂抬起）
+                 cx + 0.55 * s, cy + 0.58 * s, True, False)
+        elif prop == "fan":                         # 右手举扇（掌心朝内/左）
             R = (cx + 0.33 * s, sy0 - 0.02 * s, cx + 0.50 * s, cy + 0.52 * s,
-                 cx + 0.56 * s, cy + 0.42 * s)
-        elif prop == "umbrella":                    # 右手举伞（手臂上举）
+                 cx + 0.56 * s, cy + 0.42 * s, True, False)
+        elif prop == "umbrella":                    # 右手举伞（掌心朝内/左）
             R = (cx + 0.34 * s, sy0 - 0.04 * s, cx + 0.34 * s, cy + 0.14 * s,
-                 cx + 0.52 * s, cy + 0.24 * s)
-        elif prop == "scarf":                       # 冷：双手抱在胸前
+                 cx + 0.52 * s, cy + 0.24 * s, True, False)
+        elif prop == "scarf":                       # 冷：双手抱胸（掌心朝内）
             L = (cx - 0.33 * s, sy0, cx - 0.20 * s, cy + 0.78 * s + sway,
-                 cx - 0.44 * s, cy + 0.62 * s)
+                 cx - 0.44 * s, cy + 0.62 * s, True, False)
             R = (cx + 0.33 * s, sy0, cx + 0.20 * s, cy + 0.78 * s - sway,
-                 cx + 0.44 * s, cy + 0.62 * s)
-        if excited and prop is None:                # 快下班：双手举起欢呼
+                 cx + 0.44 * s, cy + 0.62 * s, True, False)
+        if excited and prop is None:                # 快下班：双手举起欢呼（掌心朝前）
             L = (cx - 0.33 * s, sy0, cx - 0.50 * s, cy + 0.24 * s,
-                 cx - 0.54 * s, cy + 0.30 * s)
+                 cx - 0.54 * s, cy + 0.30 * s, False, False)
             R = (cx + 0.33 * s, sy0, cx + 0.50 * s, cy + 0.24 * s,
-                 cx + 0.54 * s, cy + 0.30 * s)
-        if pet_k is not None:                       # 被摸头：双手捧脸（抬起再放下）
+                 cx + 0.54 * s, cy + 0.30 * s, False, False)
+        if pet_k is not None:                       # 被摸头：双手捧脸（掌心朝上）
             k = math.sin(max(0.0, min(1.0, pet_k)) * math.pi) * 0.9
             tgt = ((cx - 0.40 * s, cy + 0.20 * s), (cx + 0.40 * s, cy + 0.20 * s))
             new = []
@@ -1198,7 +1205,8 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
                 new.append((a[0], a[1],
                             a[2] + (tx - a[2]) * k, a[3] + (ty - a[3]) * k,
                             a[4] + (tx - a[4]) * k * 0.6,
-                            a[5] + (ty - a[5]) * k * 0.6))
+                            a[5] + (ty - a[5]) * k * 0.6,
+                            a[6], True))              # 掌心朝上
             L, R = new
 
         # 手臂（先画，道具压在臂上、掌再压在道具上 → 视觉上"握着"）
@@ -1309,7 +1317,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
 
         # 爪掌画在道具之上 → 看起来是"握住/捧着"
         for a in (L, R):
-            _draw_paw(p, a[2], a[3], s, colors, outline)
+            _draw_paw(p, a[2], a[3], s, colors, outline, flip_x=a[6], flip_y=a[7])
 
     # ---- Zzz ----
     if sleepy:
