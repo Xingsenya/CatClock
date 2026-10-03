@@ -10,3 +10,12 @@ __pycache__/
 # 本地测试残留
 run*.png
 run_log.txt
+t_*.py
+bisect_log.txt
+fh_dump.txt
+patch_count.txt
+dbg_out.txt
+ps_out.txt
+ps_err.txt
+dist_dbg/
+build_dbg/
