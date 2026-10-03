@@ -1,0 +1,12 @@
+# PyInstaller 构建产物
+build*/
+dist/
+*.spec
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 本地测试残留
+run*.png
+run_log.txt
