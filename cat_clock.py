@@ -288,23 +288,42 @@ def set_autostart(enable):
         return False
 
 
-def acquire_single():
-    """单实例锁：已有实例则通知它弹出并返回 None"""
-    sock = QLocalSocket()
-    sock.connectToServer(SINGLE_ID)
-    if sock.waitForConnected(300):
-        try:
+def _raise_existing():
+    """尽力唤起已运行的实例（旧版兼容）"""
+    try:
+        sock = QLocalSocket()
+        sock.connectToServer(SINGLE_ID)
+        if sock.waitForConnected(300):
             sock.write(b"raise")
             sock.waitForBytesWritten(300)
-        except Exception:
-            pass
-        sock.close()
+            sock.close()
+    except Exception:
+        pass
+
+
+def acquire_single():
+    """单实例锁：Windows 命名互斥体为准（进程被杀内核也自动释放，不会残留），
+    QLocalServer 仅用于唤起已运行实例。即使管道残留导致 listen 失败也照常运行，
+    绝不静默退出。"""
+    import ctypes
+    k = ctypes.windll.kernel32
+    mutex = k.CreateMutexW(None, False, "CatClockSingleInstance")
+    last_err = k.GetLastError()
+    if mutex and last_err == 183:                  # ERROR_ALREADY_EXISTS
+        k.CloseHandle(mutex)
+        _raise_existing()
         return None
-    sock.close()
+
     QLocalServer.removeServer(SINGLE_ID)
     server = QLocalServer()
-    if not server.listen(SINGLE_ID):
-        return None
+    import time
+    for attempt in range(5):                       # 管道名残留时重试清理
+        if server.listen(SINGLE_ID):
+            break
+        QLocalServer.removeServer(SINGLE_ID)
+        if attempt < 4:
+            time.sleep(0.4)
+    server._catclock_mutex = mutex                 # 保持引用，进程退出时内核释放
     return server
 
 
