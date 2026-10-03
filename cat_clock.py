@@ -476,39 +476,131 @@ def font(name, size, weight=None, style_hint=None):
 # ======================================================================
 # 猫猫绘制
 # ======================================================================
-def _draw_paw(p, x, y, s, colors, outline, flip_x=False, flip_y=False):
-    """画一只爪掌（猫手）。flip_x/flip_y 控制肉垫朝向：
-    flip_x=True 肉垫翻向手掌内侧（左右手朝身体），flip_y=True 掌心朝上。"""
-    r = s * 0.145
+def _draw_paw(p, x, y, s, colors, outline, r):
+    """标准掌心朝上的猫爪（局部标准方向：肉垫在 y- 侧）。由 _draw_hand 统一旋转。"""
     p.setPen(outline)
     p.setBrush(QColor(colors["fur_l"]))
     p.drawEllipse(QRectF(x - r, y - r * 0.94, 2 * r, 1.88 * r))
-    # 肉垫整体按 flip_x/flip_y 镜像，让掌心方向正确
-    p.save()
-    p.translate(x, y)
-    p.scale(-1.0 if flip_x else 1.0, -1.0 if flip_y else 1.0)
-    p.translate(-x, -y)
-    # 三颗小趾垫（沿掌上缘）
+    # 小趾垫（在椭圆上方，即掌心侧）
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(QColor(colors["nose"]))
     for dx in (-0.50, 0.0, 0.50):
-        p.drawEllipse(QRectF(x + dx * r - r * 0.19, y - r * 0.60,
+        p.drawEllipse(QRectF(x + dx * r - r * 0.19, y - r * 1.06,
                              r * 0.38, r * 0.34))
-    # 大肉垫（心形）
+    # 大肉垫（心形，在掌心侧）
     pad = QPainterPath()
-    pad.moveTo(x - r * 0.44, y - r * 0.06)
-    pad.quadTo(x - r * 0.50, y + r * 0.44, x, y + r * 0.54)
-    pad.quadTo(x + r * 0.50, y + r * 0.44, x + r * 0.44, y - r * 0.06)
-    pad.quadTo(x, y - r * 0.26, x - r * 0.44, y - r * 0.06)
+    pad.moveTo(x - r * 0.44, y - r * 0.50)
+    pad.quadTo(x - r * 0.50, y - r * 1.00, x, y - r * 1.10)
+    pad.quadTo(x + r * 0.50, y - r * 1.00, x + r * 0.44, y - r * 0.50)
+    pad.quadTo(x, y - r * 0.30, x - r * 0.44, y - r * 0.50)
     pad.closeSubpath()
-    p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(QColor(colors["nose"]))
     p.drawPath(pad)
-    # 高光让肉垫有立体感
+    # 高光
     p.setBrush(QColor(255, 255, 255, 90))
-    p.drawEllipse(QRectF(x - r * 0.26, y - r * 0.02, r * 0.22, r * 0.16))
-    p.restore()
+    p.drawEllipse(QRectF(x - r * 0.26, y - r * 0.66, r * 0.22, r * 0.16))
 
+
+def _draw_hand(p, x, y, s, colors, outline, kind="paw", palm_nx=0, palm_ny=1):
+    """按物种画手。掌心法向 (palm_nx, palm_ny) 决定手掌朝向：
+    (0,-1)=掌心朝上 / (0,1)=掌心朝下 / (±1,0)=掌心朝身体侧。
+    kind: paw / dog_paw / hoof / cloven / monkey / wing / claw / fingers / puff_paw / none。
+    """
+    if kind == "none":
+        return
+    r = s * 0.145
+    p.save()
+    p.translate(x, y)
+    angle = math.degrees(math.atan2(palm_nx, -palm_ny))
+    p.rotate(angle)
+    p.translate(-x, -y)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    p.setPen(outline)
+
+    if kind == "hoof":                                  # 马 / 牛 / 羊：单蹄
+        hc = _mix(colors["fur_d"], "#3B2A22", 0.40)
+        p.setBrush(QColor(hc))
+        p.drawRoundedRect(QRectF(x - r * 0.88, y + r * 0.40, r * 1.76, r * 1.60),
+                          r * 0.46, r * 0.46)
+        p.setPen(QPen(_mix(hc, "#000000", 0.32), max(1.0, s * 0.013)))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawLine(QPointF(x, y + r * 0.50), QPointF(x, y + r * 1.20))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(255, 255, 255, 70))
+        p.drawEllipse(QRectF(x - r * 0.58, y + r * 0.60, r * 0.34, r * 0.28))
+    elif kind == "cloven":                              # 猪：两瓣蹄（朝下）
+        hc = _mix(colors["fur_d"], "#3B2A22", 0.28)
+        p.setBrush(QColor(hc))
+        for dx in (-0.44, 0.44):
+            p.drawRoundedRect(QRectF(x + dx * r - r * 0.36, y + r * 0.42,
+                                     r * 0.72, r * 1.56), r * 0.32, r * 0.32)
+    elif kind == "monkey":                              # 猴：肉色掌 + 五指（朝上）
+        pc = colors.get("ear_in") or "#F5CBA7"
+        p.setBrush(QColor(pc))
+        p.drawEllipse(QRectF(x - r * 0.92, y - r * 0.82, r * 1.84, r * 1.64))
+        p.setPen(QPen(_mix(pc, "#6B4A33", 0.45), max(1.0, s * 0.013),
+                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        for dx in (-0.56, -0.19, 0.19, 0.56):           # 四指
+            p.drawLine(QPointF(x + dx * r, y - r * 0.70),
+                       QPointF(x + dx * r * 1.12, y - r * 1.06))
+        p.drawLine(QPointF(x - r * 0.82, y + r * 0.08),  # 拇指
+                   QPointF(x - r * 1.16, y + r * 0.34))
+    elif kind == "wing":                                # 鸡：翅膀向上展开
+        wc = colors.get("comb") or colors["fur_d"]
+        p.setBrush(QColor(colors["fur_l"]))
+        wp = QPainterPath()
+        wp.moveTo(x - r * 0.30, y - r * 0.85)
+        wp.quadTo(x + r * 1.00, y - r * 0.35, x + r * 0.50, y + r * 0.90)
+        wp.quadTo(x + r * 0.06, y + r * 0.50, x - r * 0.30, y + r * 0.28)
+        wp.closeSubpath()
+        p.drawPath(wp)
+        p.setPen(QPen(QColor(wc), max(1.0, s * 0.013),
+                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        for k in (0.18, 0.52, 0.86):
+            p.drawLine(QPointF(x - r * 0.12 + r * k * 0.26, y - r * 0.42 + r * k * 0.30),
+                       QPointF(x + r * 0.52, y - r * 0.52 + r * k * 1.20))
+    elif kind == "claw":                                # 龙：掌 + 三只利爪（朝上）
+        p.setBrush(QColor(colors["fur_l"]))
+        p.drawEllipse(QRectF(x - r * 0.90, y - r * 0.86, r * 1.80, r * 1.72))
+        p.setPen(outline)
+        p.setBrush(QColor(colors["fur_d"]))
+        for dx in (-0.56, 0.0, 0.56):
+            tri = QPainterPath()
+            tri.moveTo(x + dx * r - r * 0.21, y - r * 0.52)
+            tri.lineTo(x + dx * r + r * 0.21, y - r * 0.52)
+            tri.lineTo(x + dx * r, y - r * 1.14)
+            tri.closeSubpath()
+            p.drawPath(tri)
+    elif kind == "fingers":                             # 鼠：细指小手（朝上）
+        p.setBrush(QColor(colors["fur_l"]))
+        p.drawEllipse(QRectF(x - r * 0.84, y - r * 0.78, r * 1.68, r * 1.56))
+        p.setPen(QPen(outline.color(), max(1.2, s * 0.015),
+                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        for dx in (-0.60, -0.20, 0.20, 0.60):
+            p.drawLine(QPointF(x + dx * r * 0.86, y - r * 0.34),
+                       QPointF(x + dx * r * 1.06, y - r * 1.02))
+    elif kind == "puff_paw":                            # 兔：小绒掌 + 淡粉垫
+        p.setBrush(QColor(colors["fur_l"]))
+        p.drawEllipse(QRectF(x - r * 0.82, y - r * 0.78, r * 1.64, r * 1.56))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(colors["nose"]))
+        p.drawEllipse(QRectF(x - r * 0.27, y - r * 0.48, r * 0.54, r * 0.42))
+    elif kind == "dog_paw":                             # 狗：四趾 + 大肉垫
+        p.setBrush(QColor(colors["fur_l"]))
+        p.drawEllipse(QRectF(x - r, y - r * 0.94, 2 * r, 1.88 * r))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(colors["nose"]))
+        for dx in (-0.62, -0.21, 0.21, 0.62):
+            p.drawEllipse(QRectF(x + dx * r - r * 0.15, y - r * 1.02,
+                                 r * 0.30, r * 0.30))
+        p.drawEllipse(QRectF(x - r * 0.46, y - r * 0.58, r * 0.92, r * 0.76))
+        p.setBrush(QColor(255, 255, 255, 80))
+        p.drawEllipse(QRectF(x - r * 0.30, y - r * 0.40, r * 0.26, r * 0.18))
+    else:                                               # paw：猫爪
+        _draw_paw(p, x, y, s, colors, outline, r)
+    p.restore()
 
 def _draw_arm(p, sx, sy, ex, ey, bx, by, s, colors, outline):
     """画一条带描边的手臂（二次贝塞尔），末端自然过渡到爪掌位置。"""
@@ -1165,159 +1257,62 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         sy0 = cy + 0.38 * s                          # 肩线
         # 默认姿态：双手自然垂在身体两侧（掌心朝身体内侧）
         L = (cx - 0.33 * s, sy0, cx - 0.47 * s, cy + 0.86 * s + sway,
-             cx - 0.55 * s, cy + 0.60 * s, True, False)
+             cx - 0.55 * s, cy + 0.60 * s, 1.0, 0.0)
         R = (cx + 0.33 * s, sy0, cx + 0.47 * s, cy + 0.86 * s - sway,
-             cx + 0.55 * s, cy + 0.60 * s, True, False)
+             cx + 0.55 * s, cy + 0.60 * s, -1.0, 0.0)
         if prop == "coffee":                        # 双手捧杯到身前（掌心朝上）
             L = (cx - 0.33 * s, sy0, cx - 0.22 * s, cy + 0.87 * s + sway,
-                 cx - 0.46 * s, cy + 0.64 * s, False, True)
+                 cx - 0.46 * s, cy + 0.64 * s, 0.0, -1.0)
             R = (cx + 0.33 * s, sy0, cx + 0.22 * s, cy + 0.87 * s - sway,
-                 cx + 0.46 * s, cy + 0.64 * s, False, True)
+                 cx + 0.46 * s, cy + 0.64 * s, 0.0, -1.0)
         elif prop == "coin":                        # 双手捧金币（掌心朝上）
             L = (cx - 0.33 * s, sy0, cx - 0.26 * s, cy + 0.86 * s + sway,
-                 cx - 0.48 * s, cy + 0.66 * s, False, True)
+                 cx - 0.48 * s, cy + 0.66 * s, 0.0, -1.0)
             R = (cx + 0.33 * s, sy0, cx + 0.26 * s, cy + 0.86 * s - sway,
-                 cx + 0.48 * s, cy + 0.66 * s, False, True)
+                 cx + 0.48 * s, cy + 0.66 * s, 0.0, -1.0)
         elif prop == "bag":                         # 右手拎包（掌心朝内/左）
             R = (cx + 0.33 * s, sy0, cx + 0.46 * s, cy + 0.80 * s - sway,
-                 cx + 0.55 * s, cy + 0.58 * s, True, False)
+                 cx + 0.55 * s, cy + 0.58 * s, -1.0, 0.0)
         elif prop == "fan":                         # 右手举扇（掌心朝内/左）
             R = (cx + 0.33 * s, sy0 - 0.02 * s, cx + 0.50 * s, cy + 0.52 * s,
-                 cx + 0.56 * s, cy + 0.42 * s, True, False)
+                 cx + 0.56 * s, cy + 0.42 * s, -1.0, 0.0)
         elif prop == "umbrella":                    # 右手举伞（掌心朝内/左）
             R = (cx + 0.34 * s, sy0 - 0.04 * s, cx + 0.34 * s, cy + 0.14 * s,
-                 cx + 0.52 * s, cy + 0.24 * s, True, False)
+                 cx + 0.52 * s, cy + 0.24 * s, -1.0, 0.0)
         elif prop == "scarf":                       # 冷：双手抱胸（掌心朝内）
             L = (cx - 0.33 * s, sy0, cx - 0.20 * s, cy + 0.78 * s + sway,
-                 cx - 0.44 * s, cy + 0.62 * s, True, False)
+                 cx - 0.44 * s, cy + 0.62 * s, 1.0, 0.0)
             R = (cx + 0.33 * s, sy0, cx + 0.20 * s, cy + 0.78 * s - sway,
-                 cx + 0.44 * s, cy + 0.62 * s, True, False)
+                 cx + 0.44 * s, cy + 0.62 * s, -1.0, 0.0)
         if excited and prop is None:                # 快下班：双手举起欢呼（掌心朝前）
             L = (cx - 0.33 * s, sy0, cx - 0.50 * s, cy + 0.24 * s,
-                 cx - 0.54 * s, cy + 0.30 * s, False, False)
+                 cx - 0.54 * s, cy + 0.30 * s, 0.0, -1.0)
             R = (cx + 0.33 * s, sy0, cx + 0.50 * s, cy + 0.24 * s,
-                 cx + 0.54 * s, cy + 0.30 * s, False, False)
-        if pet_k is not None:                       # 被摸头：双手捧脸（掌心朝上）
+                 cx + 0.54 * s, cy + 0.30 * s, 0.0, -1.0)
+        if pet_k is not None:                       # 被摸头：双手捧脸（掌心朝上偏内）
             k = math.sin(max(0.0, min(1.0, pet_k)) * math.pi) * 0.9
             tgt = ((cx - 0.40 * s, cy + 0.20 * s), (cx + 0.40 * s, cy + 0.20 * s))
             new = []
             for a, (tx, ty) in zip((L, R), tgt):
+                nx = 0.55 if a[2] < cx else -0.55   # 掌心朝脸（内侧 + 上）
+                ny = -0.84
                 new.append((a[0], a[1],
                             a[2] + (tx - a[2]) * k, a[3] + (ty - a[3]) * k,
                             a[4] + (tx - a[4]) * k * 0.6,
                             a[5] + (ty - a[5]) * k * 0.6,
-                            a[6], True))              # 掌心朝上
+                            nx, ny))
             L, R = new
 
         # 手臂（先画，道具压在臂上、掌再压在道具上 → 视觉上"握着"）
-        for a in (L, R):
-            _draw_arm(p, a[0], a[1], a[2], a[3], a[4], a[5], s, colors, outline)
-
-        if prop == "coffee":                       # 咖啡杯 + 热气
-            cupx, cupy = cx + 0.02 * s, cy + 0.84 * s
-            cw, ch = s * 0.30, s * 0.30
-            p.setPen(QPen(QColor("#8A6A58"), max(1.0, s * 0.014)))
-            p.setBrush(QColor("#FFF8F0"))
-            p.drawRoundedRect(QRectF(cupx - cw / 2, cupy - ch / 2, cw, ch),
-                              s * 0.03, s * 0.03)
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor("#6F4E37"))
-            p.drawEllipse(QRectF(cupx - cw / 2 + s * 0.025, cupy - ch / 2 + s * 0.035,
-                                 cw - s * 0.05, s * 0.065))
-            p.setPen(QPen(QColor("#FFF8F0"), max(1.4, s * 0.028)))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawArc(QRectF(cupx + cw / 2 - s * 0.015, cupy - s * 0.055,
-                             s * 0.13, s * 0.15), -68 * 16, 136 * 16)
-            p.setPen(QPen(QColor(255, 255, 255, 185), max(1.0, s * 0.016),
-                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            for i, dx in enumerate((-0.07, 0.0, 0.07)):
-                ph = t * 1.7 + i * 1.15
-                p.drawLine(QPointF(cupx + dx * s + math.sin(ph) * s * 0.022,
-                                   cupy - ch / 2 - s * 0.03),
-                           QPointF(cupx + dx * s + math.sin(ph + 1.1) * s * 0.032,
-                                   cupy - ch / 2 - s * 0.16))
-            # 杯把（右侧，正好被右爪握住）
-            p.setPen(QPen(QColor("#8A6A58"), max(1.0, s * 0.014),
-                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawArc(QRectF(cupx + cw / 2 - s * 0.02, cupy - ch / 2 + s * 0.03,
-                             s * 0.11, s * 0.18), -80 * 16, 160 * 16)
-        elif prop == "umbrella":                   # 头顶小伞（伞柄握在右爪里）
-            ux, uy = cx + 0.10 * s, cy - 0.52 * s
-            uw = s * 0.54
-            hx, hy = R[2], R[3]                    # 右爪位置
-            p.setPen(QPen(QColor("#8A6A58"), max(1.2, s * 0.020),
-                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            # 伞柄从手掌心向上插入伞面，并在伞底画小弯钩
-            p.drawLine(QPointF(hx, hy), QPointF(ux, uy + s * 0.02))
-            p.drawArc(QRectF(ux - s * 0.13, uy - s * 0.13, s * 0.26, s * 0.24),
-                      -90 * 16, 180 * 16)
-            p.setPen(QPen(QColor("#3F86AE"), max(1.0, s * 0.014)))
-            p.setBrush(QColor("#6FB3DC"))
-            up = QPainterPath()
-            up.moveTo(ux - uw, uy)
-            up.quadTo(ux, uy - s * 0.36, ux + uw, uy)
-            up.quadTo(ux + uw * 0.50, uy + s * 0.07, ux, uy + s * 0.025)
-            up.quadTo(ux - uw * 0.50, uy + s * 0.07, ux - uw, uy)
-            up.closeSubpath()
-            p.drawPath(up)
-        elif prop == "fan":                        # 扇子（随 t 摆动）
-            fx, fy = cx + 0.56 * s, cy + 0.40 * s
-            p.save()
-            p.translate(fx, fy)
-            p.rotate(math.sin(t * 3.2) * 20)
-            p.setPen(QPen(QColor("#C0566B"), max(1.0, s * 0.014)))
-            p.setBrush(QColor("#F4B8C4"))
-            fp = QPainterPath()
-            fp.moveTo(0, s * 0.20)
-            fp.lineTo(-s * 0.21, -s * 0.10)
-            fp.quadTo(0, -s * 0.22, s * 0.21, -s * 0.10)
-            fp.closeSubpath()
-            p.drawPath(fp)
-            # 扇柄，握在爪掌里
-            p.setPen(QPen(QColor("#8A6A58"), max(1.0, s * 0.014),
-                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            p.drawLine(QPointF(0, s * 0.20), QPointF(0, s * 0.42))
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor("#C9A882"))
-            p.drawEllipse(QRectF(-s * 0.03, s * 0.39, s * 0.06, s * 0.07))
-            p.restore()
-        elif prop == "scarf":                      # 围巾
-            sy2 = cy + 0.50 * s
-            p.setPen(QPen(QColor("#A8455C"), max(1.0, s * 0.014)))
-            p.setBrush(QColor("#E2687E"))
-            p.drawRoundedRect(QRectF(cx - 0.32 * s, sy2, 0.64 * s, 0.17 * s),
-                              s * 0.08, s * 0.08)
-            p.drawRoundedRect(QRectF(cx + 0.14 * s, sy2 + 0.11 * s, 0.15 * s, 0.32 * s),
-                              s * 0.07, s * 0.07)
-        elif prop == "coin":                       # 金币
-            cxx, cyy = cx, cy + 0.84 * s
-            p.setPen(QPen(QColor("#C9922A"), max(1.0, s * 0.014)))
-            p.setBrush(QColor("#FFD34D"))
-            p.drawEllipse(QRectF(cxx - s * 0.14, cyy - s * 0.14, s * 0.28, s * 0.28))
-            p.setPen(QPen(QColor("#B07C1E"), max(1.0, s * 0.013)))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawEllipse(QRectF(cxx - s * 0.09, cyy - s * 0.09, s * 0.18, s * 0.18))
-            p.setPen(QColor("#A87618"))
-            p.setFont(font("Microsoft YaHei", max(7, int(s * 0.15)), QFont.Weight.Bold))
-            p.drawText(QRectF(cxx - s * 0.15, cyy - s * 0.15, s * 0.30, s * 0.30),
-                       Qt.AlignmentFlag.AlignCenter, "¥")
-        elif prop == "bag":                        # 拎包（垂在右爪下方）
-            bx2, by2 = cx + 0.50 * s, cy + 0.92 * s
-            bw2, bh2 = s * 0.32, s * 0.26
-            p.setPen(QPen(QColor("#8A6A58"), max(1.0, s * 0.014)))
-            p.setBrush(QColor("#C9A882"))
-            p.drawRoundedRect(QRectF(bx2 - bw2 / 2, by2 - bh2 / 2, bw2, bh2),
-                              s * 0.05, s * 0.05)
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.setPen(QPen(QColor("#8A6A58"), max(1.0, s * 0.018)))
-            p.drawArc(QRectF(bx2 - s * 0.11, by2 - bh2 / 2 - s * 0.17,
-                             s * 0.22, s * 0.26), 0, 180 * 16)
-
-        # 爪掌画在道具之上 → 看起来是"握住/捧着"
-        for a in (L, R):
-            _draw_paw(p, a[2], a[3], s, colors, outline, flip_x=a[6], flip_y=a[7])
+        hand_kind = _HAND.get(colors.get("shape", "cat"), "paw")
+        if hand_kind != "none":
+            for a in (L, R):
+                _draw_arm(p, a[0], a[1], a[2], a[3], a[4], a[5], s, colors, outline)
+        # 手画在道具之上 → 看起来是"握住/捧着"（蛇无手）
+        if hand_kind != "none":
+            for a in (L, R):
+                _draw_hand(p, a[2], a[3], s, colors, outline, hand_kind,
+                           palm_nx=a[6], palm_ny=a[7])
 
     # ---- Zzz ----
     if sleepy:
@@ -1595,6 +1590,11 @@ _TOP_EXT = {"rabbit": 0.86, "ox": 0.76, "dragon": 0.70,
 _TAIL = {"rabbit": "puff", "sheep": "puff", "dog": "curl_up", "pig": "curl",
          "horse": "brush", "ox": "brush", "dragon": "fin", "snake": "coil",
          "rooster": "feather", "rat": "whip", "monkey": "long"}
+
+# 各物种的手型（默认 paw = 猫爪；snake 无手，连手臂一起省略）
+_HAND = {"rat": "fingers", "ox": "hoof", "tiger": "paw", "rabbit": "puff_paw",
+         "dragon": "claw", "snake": "none", "horse": "hoof", "sheep": "hoof",
+         "monkey": "monkey", "rooster": "wing", "dog": "dog_paw", "pig": "cloven"}
 
 # 状态 → 手上的道具
 PROP_BY_WEATHER = {"rain": "umbrella", "thunder": "umbrella", "snow": "scarf"}
