@@ -124,8 +124,8 @@ CHARACTERS = {
         ), ears=("#3B3733", None),
     ),
     "黑猫": dict(
-        fur="#4C4653", fur_d="#3A3542", fur_l="#5E5866", line="#2F2B36",
-        ear_in="#9A8BA0", nose="#E88FA0", eye="#F2C14E",
+        fur="#4C4653", fur_d="#3A3542", fur_l="#7E7688", line="#2F2B36",
+        ear_in="#B4A5BA", nose="#E88FA0", eye="#F2C14E",
         tabby=False, patches=(), ears=(None, None),
     ),
     "三花猫": dict(
@@ -139,13 +139,13 @@ CHARACTERS = {
         ), ears=("#F3A65A", "#3B3733"),
     ),
     "白猫": dict(
-        fur="#FFFFFF", fur_d="#F1ECE5", fur_l="#FFFFFF", line="#DACFC4",
-        ear_in="#FFC9D4", nose="#FF9FB0", eye="#4A342C",
+        fur="#FFFFFF", fur_d="#F1ECE5", fur_l="#FFFFFF", line="#C4B4A2",
+        ear_in="#FFC2CE", nose="#FF9FB0", eye="#4A342C",
         tabby=False, patches=(), ears=(None, None),
     ),
     "蓝猫": dict(
         fur="#AAB5C1", fur_d="#8F9BA9", fur_l="#C7CED7", line="#7D8997",
-        ear_in="#DBA9B5", nose="#E89AA8", eye="#3A4754",
+        ear_in="#DBA9B5", nose="#E89AA8", eye="#4E9E85",
         tabby=True, tabby_c="#93A0AE", patches=(), ears=(None, None),
     ),
     "暹罗猫": dict(
@@ -363,6 +363,20 @@ def rr(x, y, w, h, r):
 _FONT_CACHE = {}
 
 
+def _q_luma(c):
+    """颜色亮度 0-1（用于判断深/浅毛色，做自适应描边）"""
+    col = QColor(c)
+    return (0.299 * col.red() + 0.587 * col.green() + 0.114 * col.blue()) / 255.0
+
+
+def _mix(c1, c2, f):
+    """两色按比例混合，返回 QColor"""
+    a, b = QColor(c1), QColor(c2)
+    return QColor(int(a.red() + (b.red() - a.red()) * f),
+                  int(a.green() + (b.green() - a.green()) * f),
+                  int(a.blue() + (b.blue() - a.blue()) * f))
+
+
 def user_idle_seconds():
     """用户无键盘/鼠标输入的时长（秒），读取失败返回 0"""
     try:
@@ -412,7 +426,9 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         blink = True
 
     lw = max(1.0, s * 0.016)
-    outline = QPen(QColor(colors["line"]), lw)
+    dark = _q_luma(colors["fur"]) < 0.42      # 深毛色：描边向浅色靠拢，避免糊成一团
+    line_c = _mix(colors["line"], colors["fur_l"], 0.72) if dark else QColor(colors["line"])
+    outline = QPen(line_c, lw)
     outline.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     outline.setCapStyle(Qt.PenCapStyle.RoundCap)
 
@@ -490,18 +506,37 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             p.drawRoundedRect(QRectF(cx + off * s - ww * s / 2, cy - 0.40 * s, ww * s, hh * s),
                               ww * s / 2, ww * s / 2)
 
+    # ---- 顶部受光（体积感） ----
+    head_clip = QPainterPath()
+    head_clip.addEllipse(head_rect)
+    p.setClipPath(head_clip)
+    sheen = QColor(colors["fur_l"])
+    sheen.setAlpha(105)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(sheen)
+    p.drawEllipse(QRectF(cx - 0.40 * s, cy - 0.48 * s, 0.74 * s, 0.40 * s))
+    p.setClipping(False)
+
     # ---- 脸颊浅色 ----
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(QColor(colors["fur_l"]))
     p.drawEllipse(QRectF(cx - 0.24 * s, cy + 0.08 * s, 0.48 * s, 0.26 * s))
+
+    # ---- 下巴阴影（贴合头部的下缘暗部） ----
+    p.setClipPath(head_clip)
+    chin = QColor(colors["fur_d"])
+    chin.setAlpha(130)
+    p.setBrush(chin)
+    p.drawEllipse(QRectF(cx - 0.32 * s, cy + 0.24 * s, 0.64 * s, 0.30 * s))
+    p.setClipping(False)
 
     # ---- 腮红 ----
     p.setBrush(QColor(255, 150, 170, 105))
     for sign in (-1, 1):
         p.drawEllipse(QRectF(cx + sign * 0.30 * s - 0.085 * s, cy + 0.04 * s, 0.17 * s, 0.105 * s))
 
-    # ---- 胡须 ----
-    hp = QPen(QColor("#E0AC76"), max(1.0, s * 0.012))
+    # ---- 胡须（深毛色用浅须，浅毛色用经典橘须） ----
+    hp = QPen(QColor("#CFC9DC") if dark else QColor("#E0AC76"), max(1.0, s * 0.012))
     hp.setCapStyle(Qt.PenCapStyle.RoundCap)
     p.setPen(hp)
     for sign in (-1, 1):
@@ -539,12 +574,23 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawArc(QRectF(ex - s * 0.085, eye_y - s * 0.055, s * 0.17, s * 0.11),
                       180 * 16, 180 * 16)
-        else:                             # 大眼 + 双高光（瞳孔跟随 look 偏移）
+        else:                             # 大眼 + 虹膜渐变 + 双高光（瞳孔跟随 look 偏移）
             lx = max(-1.0, min(1.0, look[0])) * s * 0.030
             ly = max(-1.0, min(1.0, look[1])) * s * 0.022
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(colors["eye"]))
+            if colors.get("pupil"):            # 熊猫式：白眼 + 深色瞳孔
+                p.setBrush(QColor(colors["eye"]))
+            else:                              # 虹膜上浅下深，更有神
+                g = QLinearGradient(ex, eye_y - s * 0.095, ex, eye_y + s * 0.095)
+                g.setColorAt(0, QColor(colors["eye"]))
+                g.setColorAt(1, _mix(colors["eye"], "#14100E", 0.5))
+                p.setBrush(g)
             p.drawEllipse(QRectF(ex - s * 0.068, eye_y - s * 0.095, s * 0.136, s * 0.19))
+            # 虹膜外圈细眼线
+            p.setPen(QPen(_mix(colors["eye"], "#14100E", 0.55), max(1.0, s * 0.012)))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawEllipse(QRectF(ex - s * 0.068, eye_y - s * 0.095, s * 0.136, s * 0.19))
+            p.setPen(Qt.PenStyle.NoPen)
             if colors.get("pupil"):            # 熊猫式：白眼 + 深色瞳孔
                 p.setBrush(QColor(colors["pupil"]))
                 p.drawEllipse(QRectF(ex - s * 0.030 + lx, eye_y - s * 0.030 + ly, s * 0.060, s * 0.075))
@@ -564,9 +610,13 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     nose.lineTo(cx, cy + 0.170 * s)
     nose.closeSubpath()
     p.drawPath(nose)
+    # 鼻头高光（全部角色通用，鼻子更立体）
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(255, 255, 255, 150))
+    p.drawEllipse(QRectF(cx - s * 0.032, cy + 0.116 * s, s * 0.030, s * 0.021))
 
     # ---- 嘴（打哈欠为 O 形，否则 W 形） ----
-    p.setPen(QPen(QColor(colors["line"]), max(1.3, s * 0.022), Qt.PenStyle.SolidLine,
+    p.setPen(QPen(line_c, max(1.3, s * 0.022), Qt.PenStyle.SolidLine,
                   Qt.PenCapStyle.RoundCap))
     p.setBrush(Qt.BrushStyle.NoBrush)
     if mood == "yawn":
