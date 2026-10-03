@@ -592,16 +592,16 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(colors["ear_in"]))
             p.drawEllipse(QRectF(ecx - 0.082 * s, ecy - 0.082 * s, 0.164 * s, 0.164 * s))
-        elif eshape == "long":                # 长耳（兔）
+        elif eshape == "long":                # 长耳（兔，收短防出界）
             p.save()
-            p.translate(cx + sign * 0.19 * s, cy - 0.44 * s)
+            p.translate(cx + sign * 0.19 * s, cy - 0.38 * s)
             p.rotate(sign * -10)
             p.setPen(outline)
             p.setBrush(QColor(ear_c))
-            p.drawEllipse(QRectF(-0.085 * s, -0.46 * s, 0.17 * s, 0.50 * s))
+            p.drawEllipse(QRectF(-0.082 * s, -0.42 * s, 0.164 * s, 0.46 * s))
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(colors["ear_in"]))
-            p.drawEllipse(QRectF(-0.048 * s, -0.38 * s, 0.096 * s, 0.34 * s))
+            p.drawEllipse(QRectF(-0.046 * s, -0.35 * s, 0.092 * s, 0.30 * s))
             p.restore()
         elif eshape == "flop":                # 垂耳（狗/猪/羊）
             ear = QPainterPath()
@@ -1326,6 +1326,17 @@ class CatClock(QWidget):
     def char_colors(self):
         return CHARACTERS[self.cfg["char"]]
 
+    def _cat_geo(self):
+        """猫(动物)的绘制几何：直径 cs、中心 (ccx, ccy)。
+        兔耳/牛角等超高特征需要下移并微调尺寸防出界。"""
+        mini = bool(self.cfg.get("mini", False))
+        cs = 60 if mini else 84
+        dy = 0
+        if self.char_colors().get("shape") == "rabbit":
+            cs, dy = (56, 12) if mini else (84, 10)
+        ccy = (self.H_MINI if mini else self.H_FULL) / 2 + dy
+        return cs, (54 if mini else 58), ccy
+
     def style(self):
         return STYLES[self.cfg["style"]]
 
@@ -1652,10 +1663,7 @@ class CatClock(QWidget):
             pos = e.position()
             s = float(self.cfg.get("scale", 1.0))
             lx, ly = pos.x() / s, pos.y() / s      # 换算到逻辑坐标
-            mini = self.cfg.get("mini", False)
-            cs = 60 if mini else 84
-            ccx = 54 if mini else 58
-            ccy = (self.H_MINI if mini else self.H_FULL) / 2
+            cs, ccx, ccy = self._cat_geo()
             self._press_on_cat = (lx - ccx) ** 2 + (ly - ccy) ** 2 < (cs * 0.52) ** 2
             self._press_pos = e.globalPosition().toPoint()
             self.drag_off = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -1675,10 +1683,7 @@ class CatClock(QWidget):
             pos = e.position()
             s = float(self.cfg.get("scale", 1.0))
             lx, ly = pos.x() / s, pos.y() / s
-            mini = self.cfg.get("mini", False)
-            cs = 60 if mini else 84
-            ccx = 54 if mini else 58
-            ccy = (self.H_MINI if mini else self.H_FULL) / 2
+            cs, ccx, ccy = self._cat_geo()
             if (lx - ccx) ** 2 + (ly - ccy) ** 2 < (cs * 0.55) ** 2:
                 if self.hover_cat_t == 0.0 and self.meow_bubble_t >= 2.5 \
                         and random.random() < 0.15:
@@ -1938,9 +1943,7 @@ class CatClock(QWidget):
             s = 0
 
         # 猫（雷暴/严寒发抖；高温冒汗；瞳孔跟随鼠标；待机小动作；摇尾巴）
-        cs = 60 if mini else 84
-        ccx = 54 if mini else 58
-        ccy = H / 2
+        cs, ccx, ccy = self._cat_geo()
         meowing = self.meow_t < 0.7
         thunder = bool(self.weather) and self.weather["kind"] == "thunder"
         wtemp = self.weather["temp"] if self.weather else None
@@ -2035,12 +2038,13 @@ class CatClock(QWidget):
                     p.drawText(QRectF(x + fw, cy0, tw, 38),
                                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "%02d" % m)
 
-            # 行1：天气 + 距下班
+            # 行1：天气 + 距下班（按可用宽度自适应精简，防右侧裁切）
             p.setPen(QColor(st["sub"]))
             p.setFont(font("Microsoft YaHei", 9))
-            wx = ""
-            if self.weather and not mini:
-                wx = "%s %d°C · " % (self.weather["text"], self.weather["temp"])
+            wt = self.weather["text"] if self.weather else ""
+            tp = self.weather["temp"] if self.weather else None
+            wx_full = "%s %d°C · " % (wt, tp) if tp is not None else ""
+            wx_cmp = "%s·" % wt if wt else ""
             if mini:
                 sub = {"pre": "%s 开工" % start.strftime("%H:%M"),
                        "work": "距 %s" % end.strftime("%H:%M"),
@@ -2048,15 +2052,33 @@ class CatClock(QWidget):
                 p.drawText(QRectF(x, H / 2 - 2, tw, 18),
                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, sub)
             else:
+                fm = p.fontMetrics()
+
+                def pick(cands):
+                    for t in cands:
+                        if fm.horizontalAdvance(t) <= tw:
+                            return t
+                    return cands[-1]
+
                 if phase == "pre":
-                    line1 = wx + "%s 开工 · 还没上班呢" % start.strftime("%H:%M")
+                    line1 = pick([wx_full + "%s 开工 · 还没上班呢" % start.strftime("%H:%M"),
+                                  wx_cmp + "%s 开工" % start.strftime("%H:%M"),
+                                  "%s 开工" % start.strftime("%H:%M")])
                 elif phase == "work":
-                    line1 = "快下班了，冲！" if excited else wx + "距 %s 下班" % end.strftime("%H:%M")
+                    if excited:
+                        line1 = "快下班了，冲！"
+                    else:
+                        hm = end.strftime("%H:%M")
+                        line1 = pick([wx_full + "距 %s 下班" % hm,
+                                      wx_cmp + "距%s下班" % hm,
+                                      "距 %s 下班" % hm])
                 else:
                     if datetime.now().hour >= 22:
-                        line1 = wx + "夜深了，早点休息"
+                        line1 = pick([wx_full + "夜深了，早点休息", "夜深了，早点休息"])
                     else:
-                        line1 = wx + "已下班 %d 小时 %02d 分 · 辛苦啦" % (h, m)
+                        line1 = pick([wx_full + "已下班 %d 小时 %02d 分" % (h, m),
+                                      "已下班 %d 小时 %02d 分" % (h, m),
+                                      "已下班 %dh%02d" % (h, m)])
                 p.drawText(QRectF(x, 50, tw, 16),
                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, line1)
 
