@@ -62,6 +62,7 @@ DEFAULTS = {
     "hydrate": True,      # 每小时久坐提醒
     "notify_pre": True,   # 下班前 30/10 分钟预告
     "afk": True,          # 离开时猫打瞌睡
+    "dim25": False,       # 2.5D 立体效果（投影/倾斜/挤压/耳抖）
     "scale": 1.0,         # 整体缩放（0.6-1.6，滚轮调节）
 }
 
@@ -414,8 +415,10 @@ def font(name, size, weight=None, style_hint=None):
 # 猫猫绘制
 # ======================================================================
 def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False,
-             scared=False, look=(0.0, 0.0), mood=None, tail_phase=None, t=0.0):
-    """画一只可爱的猫脑袋。s 为整体直径；look 为瞳孔偏移(-1..1)；mood 待机动作；tail_phase 摇尾"""
+             scared=False, look=(0.0, 0.0), mood=None, tail_phase=None, t=0.0,
+             dim25=False, pet_k=None, ear_tw=None):
+    """画一只可爱的猫脑袋。s 为整体直径；look 为瞳孔偏移(-1..1)；mood 待机动作；tail_phase 摇尾
+    dim25=2.5D 模式（投影/倾斜/挤压）；pet_k 摸猫进度 0..1；ear_tw=(方向±1, 进度0..1) 耳抖"""
     if colors is None:
         colors = CHARACTERS["橘猫"]
     p.save()
@@ -431,6 +434,23 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     outline = QPen(line_c, lw)
     outline.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     outline.setCapStyle(Qt.PenCapStyle.RoundCap)
+
+    # ---- 2.5D：落地软阴影（不参与倾斜） ----
+    if dim25:
+        p.save()
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(0, 0, 0, 42))
+        p.drawEllipse(QRectF(cx - 0.36 * s, cy + 0.35 * s, 0.72 * s, 0.105 * s))
+        p.restore()
+        # 2.5D：视差倾斜（随瞳孔方向） + 摸猫挤压拉伸（squash & stretch）
+        p.save()
+        p.translate(cx, cy)
+        p.rotate(max(-1.0, min(1.0, look[0])) * 5.0)
+        q = 0.0
+        if pet_k is not None:
+            q = math.sin(max(0.0, min(1.0, pet_k)) * math.pi)
+        p.scale(1.0 - 0.045 * q, 1.0 + 0.055 * q)
+        p.translate(-cx, -cy)
 
     head_rect = QRectF(cx - 0.44 * s, cy - 0.42 * s, 0.88 * s, 0.86 * s)
 
@@ -458,6 +478,14 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
 
     # ---- 耳朵 ----
     for idx, sign in enumerate((-1, 1)):
+        tw_rot = 0.0
+        if dim25 and ear_tw and ear_tw[0] == sign:
+            tw_rot = math.sin(max(0.0, min(1.0, ear_tw[1])) * math.pi) * 11.0 * sign
+            bx, by = cx + sign * 0.28 * s, cy - 0.30 * s
+            p.save()
+            p.translate(bx, by)
+            p.rotate(tw_rot)
+            p.translate(-bx, -by)
         ear_c = colors["ears"][idx] or colors["fur"]
         ear = QPainterPath()
         ear.moveTo(cx + sign * 0.36 * s, cy - 0.18 * s)
@@ -477,6 +505,8 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(colors["ear_in"]))
         p.drawPath(inner)
+        if tw_rot:
+            p.restore()
 
     # ---- 头 ----
     grad = QLinearGradient(cx, cy - 0.44 * s, cx, cy + 0.46 * s)
@@ -648,6 +678,9 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             p.setPen(QPen(QColor(255, 255, 255, a), max(1.3, s * 0.022), Qt.PenStyle.SolidLine,
                           Qt.PenCapStyle.RoundCap))
             p.drawPath(z)
+
+    if dim25:
+        p.restore()          # 收尾视差倾斜/挤压变换
 
     p.restore()
 
@@ -934,6 +967,8 @@ class CatClock(QWidget):
         self._prev_secs = None     # 上一帧剩余秒（跨点检测用）
         self._fired_marks = set()  # 本阶段已发过的预告（1800/600）
         self._rest_eve_day = None  # 已提示过的"明天休息"日期
+        self.ear_tw = None         # 2.5D 耳抖 (方向, 起始 t0)
+        self.next_ear_tw = 12.0    # 下次耳抖的 t0
 
         self.setWindowTitle(APP_NAME)
         self.set_window_flags()
@@ -1098,6 +1133,9 @@ class CatClock(QWidget):
         self.act_afk = QAction("离开时猫打瞌睡", self, checkable=True)
         self.act_afk.setChecked(bool(self.cfg.get("afk", True)))
         self.act_afk.triggered.connect(lambda on: self.toggle_cfg("afk", on))
+        self.act_25d = QAction("2.5D 立体效果", self, checkable=True)
+        self.act_25d.setChecked(bool(self.cfg.get("dim25", False)))
+        self.act_25d.triggered.connect(lambda on: self.toggle_cfg("dim25", on))
 
         # 大小子菜单
         self.size_menu = QMenu("大小（也可在窗口上滚轮）", self)
@@ -1149,6 +1187,7 @@ class CatClock(QWidget):
         self.menu.addAction(self.act_hydrate)
         self.menu.addAction(self.act_npre)
         self.menu.addAction(self.act_afk)
+        self.menu.addAction(self.act_25d)
         self.menu.addSeparator()
         self.menu.addMenu(self.size_menu)
         self.menu.addSeparator()
@@ -1440,6 +1479,12 @@ class CatClock(QWidget):
         if self.idle and self.t0 - self.idle[1] > 3.0:
             self.idle = None
             self.idle_next = self.t0 + random.uniform(20, 45)
+        # 2.5D：随机耳抖（每 25-60 秒一次，每次 0.6 秒）
+        if self.ear_tw and self.t0 - self.ear_tw[1] > 0.6:
+            self.ear_tw = None
+        if self.cfg.get("dim25") and self.ear_tw is None and self.t0 >= self.next_ear_tw:
+            self.ear_tw = (random.choice((-1, 1)), self.t0)
+            self.next_ear_tw = self.t0 + random.uniform(25, 60)
         # 阶段切换：发通知
         prev_phase = self.last_phase
         if prev_phase and phase != prev_phase:
@@ -1622,10 +1667,15 @@ class CatClock(QWidget):
         mood = None if mini else (self.idle[0] if self.idle else None)
         # 摇尾：平时慢摆，摸猫时快摆
         tail_phase = (self.t0 * (7.0 if meowing else 1.8)) + (2.0 if meowing else 0.0)
+        dim25 = bool(self.cfg.get("dim25", False))
+        ear_tw = None
+        if dim25 and self.ear_tw:
+            ear_tw = (self.ear_tw[0], (self.t0 - self.ear_tw[1]) / 0.6)
         draw_cat(p, ccx + shake, ccy, cs, self.char_colors(),
                  blink=self.blink_t < 0.18 or meowing, excited=excited, sleepy=sleepy,
                  scared=thunder or too_hot, look=look, mood=mood,
-                 tail_phase=tail_phase, t=self.t0)
+                 tail_phase=tail_phase, t=self.t0, dim25=dim25,
+                 pet_k=self.meow_t if self.meow_t < 1.0 else None, ear_tw=ear_tw)
 
         # 天气小图标（右上角）
         if self.weather and not mini:
