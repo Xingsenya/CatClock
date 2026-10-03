@@ -63,6 +63,7 @@ DEFAULTS = {
     "notify_pre": True,   # 下班前 30/10 分钟预告
     "afk": True,          # 离开时猫打瞌睡
     "dim25": False,       # 2.5D 立体效果（投影/倾斜/挤压/耳抖）
+    "body": True,         # 半身模式（圆身体 + 前爪 + 状态道具）
     "scale": 1.0,         # 整体缩放（0.6-1.6，滚轮调节）
 }
 
@@ -477,9 +478,10 @@ def font(name, size, weight=None, style_hint=None):
 # ======================================================================
 def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False,
              scared=False, look=(0.0, 0.0), mood=None, tail_phase=None, t=0.0,
-             dim25=False, pet_k=None, ear_tw=None):
+             dim25=False, pet_k=None, ear_tw=None, body=False, prop=None):
     """画一只可爱的猫脑袋。s 为整体直径；look 为瞳孔偏移(-1..1)；mood 待机动作；tail_phase 摇尾
-    dim25=2.5D 模式（投影/倾斜/挤压）；pet_k 摸猫进度 0..1；ear_tw=(方向±1, 进度0..1) 耳抖"""
+    dim25=2.5D 模式（投影/倾斜/挤压）；pet_k 摸猫进度 0..1；ear_tw=(方向±1, 进度0..1) 耳抖
+    body=半身模式（圆身体+前爪）；prop=手上的道具（coffee/umbrella/fan/scarf/coin/bag）"""
     if colors is None:
         colors = CHARACTERS["橘猫"]
     p.save()
@@ -501,7 +503,9 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         p.save()
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(0, 0, 0, 42))
-        p.drawEllipse(QRectF(cx - 0.36 * s, cy + 0.35 * s, 0.72 * s, 0.105 * s))
+        sy0 = (cy + 1.02 * s) if body else (cy + 0.35 * s)
+        sw0 = 0.48 if body else 0.36
+        p.drawEllipse(QRectF(cx - sw0 * s, sy0, 2 * sw0 * s, 0.105 * s))
         p.restore()
         # 2.5D：视差倾斜（随瞳孔方向） + 摸猫挤压拉伸（squash & stretch）
         p.save()
@@ -521,7 +525,10 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
 
     # ---- 尾巴（最底层，从头侧伸出摆动） ----
     if tail_phase is not None:
-        bx, by = cx - 0.38 * s, cy + 0.32 * s
+        if body:
+            bx, by = cx - 0.46 * s, cy + 0.66 * s
+        else:
+            bx, by = cx - 0.38 * s, cy + 0.32 * s
         sw = math.sin(tail_phase) * 0.18 * s
         tail = QPainterPath()
         tail.moveTo(bx, by)
@@ -641,6 +648,40 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             p.drawPath(inner)
         if tw_rot:
             p.restore()
+
+    # ---- 半身：圆润身体（头之前绘制，头会自然盖住肩线） ----
+    if body:
+        bw = s * 0.92          # 底宽
+        shw = s * 0.58         # 肩宽
+        by0 = cy + s * 0.24    # 肩线
+        by1 = cy + s * 1.02    # 底边
+        bp = QPainterPath()
+        bp.moveTo(cx - shw / 2, by0)
+        bp.cubicTo(cx - bw / 2, by0 + 0.10 * s,
+                   cx - bw / 2, by1 - 0.20 * s,
+                   cx - bw / 2, by1 - 0.14 * s)
+        bp.quadTo(cx, by1 + 0.08 * s, cx + bw / 2, by1 - 0.14 * s)
+        bp.cubicTo(cx + bw / 2, by1 - 0.20 * s,
+                   cx + bw / 2, by0 + 0.10 * s,
+                   cx + shw / 2, by0)
+        bp.closeSubpath()
+        bg = QLinearGradient(cx, by0, cx, by1)
+        bg.setColorAt(0, QColor(colors["fur"]))
+        bg.setColorAt(1, QColor(colors["fur_d"]))
+        p.setPen(outline)
+        p.setBrush(bg)
+        p.drawPath(bp)
+        # 肚皮浅色
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(colors["fur_l"]))
+        p.drawEllipse(QRectF(cx - 0.21 * s, by0 + 0.10 * s, 0.42 * s, 0.48 * s))
+        # 底部暗边（体积感）
+        p.setClipPath(bp)
+        shade = QColor(colors["fur_d"])
+        shade.setAlpha(90)
+        p.setBrush(shade)
+        p.drawEllipse(QRectF(cx - 0.50 * s, by1 - 0.30 * s, 1.00 * s, 0.44 * s))
+        p.setClipping(False)
 
     # ---- 头 ----
     grad = QLinearGradient(cx, cy - 0.44 * s, cx, cy + 0.46 * s)
@@ -952,6 +993,115 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         p.setBrush(QColor("#8EC9E8"))
         p.drawEllipse(QRectF(cx + 0.24 * s, cy - 0.42 * s, 0.10 * s, 0.14 * s))
 
+    # ---- 半身：前爪 + 道具 ----
+    if body:
+        paw_r = s * 0.145
+        lpx, rpx = cx - 0.44 * s, cx + 0.44 * s
+        lpy = rpy = cy + 0.82 * s
+        if prop == "coffee":                       # 双手捧杯
+            lpx, rpx = cx - 0.10 * s, cx + 0.34 * s
+            lpy = rpy = cy + 0.88 * s
+        elif prop == "coin":                       # 双手捧金币
+            lpx, rpx = cx - 0.28 * s, cx + 0.28 * s
+            lpy = rpy = cy + 0.90 * s
+        elif prop == "bag":                        # 右手拎包（爪抬高）
+            rpx, rpy = cx + 0.52 * s, cy + 0.72 * s
+        elif prop == "fan":                        # 右手拿扇
+            rpx, rpy = cx + 0.50 * s, cy + 0.78 * s
+        for px, py in ((lpx, lpy), (rpx, rpy)):
+            p.setPen(outline)
+            p.setBrush(QColor(colors["fur_l"]))
+            p.drawEllipse(QRectF(px - paw_r, py - paw_r, 2 * paw_r, 2 * paw_r))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(colors["nose"]))
+            p.drawEllipse(QRectF(px - paw_r * 0.40, py - paw_r * 0.16,
+                                 paw_r * 0.80, paw_r * 0.60))
+
+        if prop == "coffee":                       # 咖啡杯 + 热气
+            cupx, cupy = cx + 0.30 * s, cy + 0.78 * s
+            cw, ch = s * 0.26, s * 0.30
+            p.setPen(QPen(QColor("#8A6A58"), max(1.0, s * 0.014)))
+            p.setBrush(QColor("#FFF8F0"))
+            p.drawRoundedRect(QRectF(cupx - cw / 2, cupy - ch / 2, cw, ch),
+                              s * 0.03, s * 0.03)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor("#6F4E37"))
+            p.drawEllipse(QRectF(cupx - cw / 2 + s * 0.025, cupy - ch / 2 + s * 0.035,
+                                 cw - s * 0.05, s * 0.065))
+            p.setPen(QPen(QColor("#FFF8F0"), max(1.4, s * 0.028)))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawArc(QRectF(cupx + cw / 2 - s * 0.015, cupy - s * 0.055,
+                             s * 0.13, s * 0.15), -68 * 16, 136 * 16)
+            p.setPen(QPen(QColor(255, 255, 255, 185), max(1.0, s * 0.016),
+                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            for i, dx in enumerate((-0.07, 0.0, 0.07)):
+                ph = t * 1.7 + i * 1.15
+                p.drawLine(QPointF(cupx + dx * s + math.sin(ph) * s * 0.022,
+                                   cupy - ch / 2 - s * 0.03),
+                           QPointF(cupx + dx * s + math.sin(ph + 1.1) * s * 0.032,
+                                   cupy - ch / 2 - s * 0.16))
+        elif prop == "umbrella":                   # 头顶小伞
+            ux, uy = cx + 0.04 * s, cy - 0.80 * s
+            uw = s * 0.60
+            p.setPen(QPen(QColor("#3F86AE"), max(1.0, s * 0.014)))
+            p.setBrush(QColor("#6FB3DC"))
+            up = QPainterPath()
+            up.moveTo(ux - uw, uy)
+            up.quadTo(ux, uy - s * 0.46, ux + uw, uy)
+            up.quadTo(ux + uw * 0.50, uy + s * 0.07, ux, uy + s * 0.025)
+            up.quadTo(ux - uw * 0.50, uy + s * 0.07, ux - uw, uy)
+            up.closeSubpath()
+            p.drawPath(up)
+            p.setPen(QPen(QColor("#8A6A58"), max(1.2, s * 0.020),
+                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.drawLine(QPointF(ux, uy - s * 0.30), QPointF(ux, uy))
+            p.drawArc(QRectF(ux - s * 0.07, uy - s * 0.30, s * 0.11, s * 0.11), 0, 180 * 16)
+        elif prop == "fan":                        # 扇子（随 t 摆动）
+            fx, fy = cx + 0.52 * s, cy + 0.62 * s
+            p.save()
+            p.translate(fx, fy)
+            p.rotate(math.sin(t * 3.2) * 20)
+            p.setPen(QPen(QColor("#C0566B"), max(1.0, s * 0.014)))
+            p.setBrush(QColor("#F4B8C4"))
+            fp = QPainterPath()
+            fp.moveTo(0, s * 0.20)
+            fp.lineTo(-s * 0.21, -s * 0.10)
+            fp.quadTo(0, -s * 0.22, s * 0.21, -s * 0.10)
+            fp.closeSubpath()
+            p.drawPath(fp)
+            p.restore()
+        elif prop == "scarf":                      # 围巾
+            sy2 = cy + 0.50 * s
+            p.setPen(QPen(QColor("#A8455C"), max(1.0, s * 0.014)))
+            p.setBrush(QColor("#E2687E"))
+            p.drawRoundedRect(QRectF(cx - 0.32 * s, sy2, 0.64 * s, 0.17 * s),
+                              s * 0.08, s * 0.08)
+            p.drawRoundedRect(QRectF(cx + 0.14 * s, sy2 + 0.11 * s, 0.15 * s, 0.32 * s),
+                              s * 0.07, s * 0.07)
+        elif prop == "coin":                       # 金币
+            cxx, cyy = cx, cy + 0.90 * s
+            p.setPen(QPen(QColor("#C9922A"), max(1.0, s * 0.014)))
+            p.setBrush(QColor("#FFD34D"))
+            p.drawEllipse(QRectF(cxx - s * 0.14, cyy - s * 0.14, s * 0.28, s * 0.28))
+            p.setPen(QPen(QColor("#B07C1E"), max(1.0, s * 0.013)))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawEllipse(QRectF(cxx - s * 0.09, cyy - s * 0.09, s * 0.18, s * 0.18))
+            p.setPen(QColor("#A87618"))
+            p.setFont(font("Microsoft YaHei", max(7, int(s * 0.15)), QFont.Weight.Bold))
+            p.drawText(QRectF(cxx - s * 0.15, cyy - s * 0.15, s * 0.30, s * 0.30),
+                       Qt.AlignmentFlag.AlignCenter, "¥")
+        elif prop == "bag":                        # 拎包
+            bx2, by2 = cx + 0.66 * s, cy + 0.94 * s
+            bw2, bh2 = s * 0.34, s * 0.28
+            p.setPen(QPen(QColor("#8A6A58"), max(1.0, s * 0.014)))
+            p.setBrush(QColor("#C9A882"))
+            p.drawRoundedRect(QRectF(bx2 - bw2 / 2, by2 - bh2 / 2, bw2, bh2),
+                              s * 0.05, s * 0.05)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(QColor("#8A6A58"), max(1.0, s * 0.018)))
+            p.drawArc(QRectF(bx2 - s * 0.10, by2 - bh2 / 2 - s * 0.15,
+                             s * 0.20, s * 0.22), 0, 180 * 16)
+
     # ---- Zzz ----
     if sleepy:
         for i, (dx, dy, a) in enumerate(((0.34, -0.44, 230), (0.50, -0.60, 190), (0.64, -0.76, 150))):
@@ -1220,6 +1370,14 @@ class RestDaysDialog(QDialog):
         return [i for i, b in enumerate(self.boxes) if b.isChecked()]
 
 
+# 各物种"头顶以上"的延伸系数（耳朵/角/鸡冠），半身模式用来自动定尺寸防出界
+_TOP_EXT = {"rabbit": 0.86, "ox": 0.76, "dragon": 0.70,
+           "sheep": 0.72, "rooster": 0.64, "horse": 0.64}
+
+# 状态 → 手上的道具
+PROP_BY_WEATHER = {"rain": "umbrella", "thunder": "umbrella", "snow": "scarf"}
+
+
 class CatClock(QWidget):
     W = 272
     H_FULL = 122
@@ -1328,14 +1486,20 @@ class CatClock(QWidget):
 
     def _cat_geo(self):
         """猫(动物)的绘制几何：直径 cs、中心 (ccx, ccy)。
-        兔耳/牛角等超高特征需要下移并微调尺寸防出界。"""
+        半身模式按物种头顶延伸系数自动定尺寸，保证「头 + 身体」都在画布内。"""
         mini = bool(self.cfg.get("mini", False))
-        cs = 60 if mini else 84
-        dy = 0
-        if self.char_colors().get("shape") == "rabbit":
-            cs, dy = (56, 12) if mini else (84, 10)
-        ccy = (self.H_MINI if mini else self.H_FULL) / 2 + dy
-        return cs, (54 if mini else 58), ccy
+        H = self.H_MINI if mini else self.H_FULL
+        ccx = 54 if mini else 58
+        if not bool(self.cfg.get("body", True)):
+            cs, dy = (60, 0) if mini else (84, 0)
+            if self.char_colors().get("shape") == "rabbit":
+                cs, dy = (56, 12) if mini else (84, 10)
+            return cs, ccx, H / 2 + dy
+        shape = self.char_colors().get("shape", "cat")
+        top = _TOP_EXT.get(shape, 0.64)
+        cs = int((H - 8) / (top + 1.02))
+        cs = max(30, min(96, cs))
+        return cs, ccx, 4 + top * cs
 
     def style(self):
         return STYLES[self.cfg["style"]]
@@ -1434,6 +1598,9 @@ class CatClock(QWidget):
         self.act_25d = QAction("2.5D 立体效果", self, checkable=True)
         self.act_25d.setChecked(bool(self.cfg.get("dim25", False)))
         self.act_25d.triggered.connect(lambda on: self.toggle_cfg("dim25", on))
+        self.act_body = QAction("半身小猫（身体+道具）", self, checkable=True)
+        self.act_body.setChecked(bool(self.cfg.get("body", True)))
+        self.act_body.triggered.connect(lambda on: self.toggle_cfg("body", on))
 
         # 大小子菜单
         self.size_menu = QMenu("大小（也可在窗口上滚轮）", self)
@@ -1486,6 +1653,7 @@ class CatClock(QWidget):
         self.menu.addAction(self.act_npre)
         self.menu.addAction(self.act_afk)
         self.menu.addAction(self.act_25d)
+        self.menu.addAction(self.act_body)
         self.menu.addSeparator()
         self.menu.addMenu(self.size_menu)
         self.menu.addSeparator()
@@ -1961,11 +2129,35 @@ class CatClock(QWidget):
         ear_tw = None
         if dim25 and self.ear_tw:
             ear_tw = (self.ear_tw[0], (self.t0 - self.ear_tw[1]) / 0.6)
+        # 半身模式：按状态决定手上的道具
+        body = bool(self.cfg.get("body", True))
+        prop = None
+        if body:
+            now = datetime.now()
+            pday = int(self.cfg.get("payday", 0) or 0)
+            is_payday = pday and now.day == min(pday, calendar.monthrange(
+                now.year, now.month)[1])
+            wkind = self.weather["kind"] if self.weather else None
+            if is_payday:
+                prop = "coin"
+            elif self.afk:
+                prop = None                                   # 打瞌睡：不拿东西
+            elif wkind in ("rain", "thunder"):
+                prop = "umbrella"
+            elif wtemp is not None and wtemp >= 32:
+                prop = "fan"
+            elif wtemp is not None and wtemp <= 2:
+                prop = "scarf"
+            elif phase == "off":
+                prop = "bag"
+            elif phase == "work":
+                prop = "coffee"
         draw_cat(p, ccx + shake, ccy, cs, self.char_colors(),
                  blink=self.blink_t < 0.18 or meowing, excited=excited, sleepy=sleepy,
                  scared=thunder or too_hot, look=look, mood=mood,
                  tail_phase=tail_phase, t=self.t0, dim25=dim25,
-                 pet_k=self.meow_t if self.meow_t < 1.0 else None, ear_tw=ear_tw)
+                 pet_k=self.meow_t if self.meow_t < 1.0 else None, ear_tw=ear_tw,
+                 body=body, prop=prop)
 
         # 天气小图标（右上角）
         if self.weather and not mini:

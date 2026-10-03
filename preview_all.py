@@ -5,7 +5,7 @@ sys.path.insert(0, r"D:\CatClock")
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QLinearGradient, QPen
 from PyQt6.QtCore import Qt, QRectF
-from cat_clock import CHARACTERS, STYLES, draw_cat, rr
+from cat_clock import CHARACTERS, STYLES, draw_cat, rr, _TOP_EXT
 
 app = QApplication([])
 CELL_W, CELL_H = 300, 140
@@ -28,8 +28,13 @@ for r, cname in enumerate(rows):
         p.setBrush(g)
         p.setPen(QPen(QColor(*st["border"], 200), 1.2))
         p.drawPath(rr(ox + 10, oy + 12, CELL_W - 20, CELL_H - 24, 20))
-        # 猫
-        draw_cat(p, ox + 58, oy + CELL_H / 2, 80, CHARACTERS[cname])
+        # 猫（半身模式）
+        shape = CHARACTERS[cname].get("shape", "cat")
+        top = _TOP_EXT.get(shape, 0.64)
+        cs = int((CELL_H - 14) / (top + 1.02))
+        ccy = 7 + top * cs
+        draw_cat(p, ox + 58, oy + ccy, cs, CHARACTERS[cname],
+                 body=True, prop="coffee", t=1.2, dim25=True)
         # 文字示例
         p.setPen(QColor(st["text"]))
         p.setFont(QFont("Segoe UI", 17, QFont.Weight.Bold))
