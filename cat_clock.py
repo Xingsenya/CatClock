@@ -714,60 +714,55 @@ def _draw_arm(p, sx, sy, ex, ey, bx, by, s, colors, outline):
                          sh_w * 0.80, sh_w * 0.80))
 
 
-def _draw_hair(p, cx, cy, s, colors, outline, style, head_top, hw=0.88, t=0.0):
-    """头顶毛发：短绒毛簇 / 柔和浏海 / 龙背鳍，避免直立天线感。"""
+def _draw_hat(p, cx, cy, s, colors, outline, style, head_top, hw=0.88, t=0.0):
+    """头顶帽子：cap（棒球帽）/ beanie（毛线帽）。这种 Q 版风格不画头发。"""
     if style == "none":
         return
-    fur_l = colors["fur_l"]
-    fur_d = colors["fur_d"]
-    top = head_top + 0.03 * s              # 根部略沉入头顶
-    fine = s >= 110
-    p.setPen(outline)
-    p.setBrush(QColor(fur_l))
-
-    if style == "fluff":
-        # 中心三小簇，重叠成柔软毛团，不超出头顶太多
-        for dx, dy, rx, ry in ((0.00, -0.045, 0.065, 0.055),
-                               (-0.055, -0.020, 0.050, 0.045),
-                               (0.055, -0.020, 0.050, 0.045)):
-            p.drawEllipse(QRectF(cx + dx * s - rx * s, top + dy * s - ry * s,
-                                 2 * rx * s, 2 * ry * s))
-        if fine:
-            # 两侧各一个小绒球，让轮廓柔和
-            for sign in (-1, 1):
-                p.drawEllipse(QRectF(cx + sign * hw / 2 * s * 0.85 - 0.035 * s,
-                                     top - 0.035 * s,
-                                     0.07 * s, 0.06 * s))
-    elif style == "bangs":
-        # 额前浏海：三朵圆润小云，像一撮毛盖在额头
-        for dx, dy, rx, ry in ((-0.075, 0.015, 0.065, 0.055),
-                               (0.000, -0.020, 0.075, 0.065),
-                               (0.075, 0.015, 0.065, 0.055)):
-            p.drawEllipse(QRectF(cx + dx * s - rx * s, top + dy * s - ry * s,
-                                 2 * rx * s, 2 * ry * s))
-        if fine:
-            # 鬓角两小缕
-            for sign in (-1, 1):
-                p.drawEllipse(QRectF(cx + sign * 0.19 * s - 0.032 * s,
-                                     top + 0.06 * s - 0.028 * s,
-                                     0.064 * s, 0.056 * s))
-    elif style == "crest":
-        # 龙：柔和背鳍，从后脑勺向上向后飘，不立刺
-        pc = QColor(colors.get("mane") or fur_d)
-        p.setBrush(pc)
-        for sign in (-1, 1):
-            crest = QPainterPath()
-            crest.moveTo(cx + sign * 0.05 * s, top + 0.06 * s)
-            crest.cubicTo(cx + sign * 0.20 * s, top - 0.02 * s,
-                          cx + sign * 0.22 * s, top - 0.13 * s,
-                          cx + sign * 0.12 * s, top - 0.18 * s)
-            crest.cubicTo(cx + sign * 0.08 * s, top - 0.10 * s,
-                          cx + sign * 0.03 * s, top - 0.04 * s,
-                          cx + sign * 0.05 * s, top + 0.06 * s)
-            crest.closeSubpath()
-            p.drawPath(crest)
-        # 中间一簇把左右连起来
-        p.drawEllipse(QRectF(cx - 0.06 * s, top - 0.12 * s, 0.12 * s, 0.10 * s))
+    top = head_top
+    line_c = outline.color()
+    if style == "cap":
+        # 帽身：圆顶盖在头顶上半，颜色明快
+        cap_c = "#E8734A"
+        dome = QPainterPath()
+        dome.moveTo(cx - 0.40 * s, top + 0.16 * s)
+        dome.cubicTo(cx - 0.42 * s, top - 0.06 * s,
+                     cx + 0.42 * s, top - 0.06 * s,
+                     cx + 0.40 * s, top + 0.16 * s)
+        dome.quadTo(cx, top + 0.26 * s, cx - 0.40 * s, top + 0.16 * s)
+        dome.closeSubpath()
+        p.setPen(outline)
+        p.setBrush(QColor(cap_c))
+        p.drawPath(dome)
+        # 帽檐：向右前方挑出
+        brim = QPainterPath()
+        brim.moveTo(cx + 0.02 * s, top + 0.13 * s)
+        brim.quadTo(cx + 0.36 * s, top + 0.06 * s, cx + 0.52 * s, top + 0.16 * s)
+        brim.quadTo(cx + 0.36 * s, top + 0.22 * s, cx + 0.02 * s, top + 0.21 * s)
+        brim.closeSubpath()
+        p.setBrush(QColor(_mix(cap_c, "#000000", 0.18)))
+        p.drawPath(brim)
+        # 顶部小圆纽
+        p.setBrush(QColor(cap_c))
+        p.drawEllipse(QRectF(cx - 0.045 * s, top - 0.075 * s, 0.09 * s, 0.075 * s))
+    elif style == "beanie":
+        # 毛线帽：圆顶 + 翻边 + 绒球
+        bean_c = "#7FA8D9" if colors.get("shape") != "rat" else "#B48ACB"
+        dome = QPainterPath()
+        dome.moveTo(cx - 0.40 * s, top + 0.14 * s)
+        dome.cubicTo(cx - 0.42 * s, top - 0.12 * s,
+                     cx + 0.42 * s, top - 0.12 * s,
+                     cx + 0.40 * s, top + 0.14 * s)
+        dome.closeSubpath()
+        p.setPen(outline)
+        p.setBrush(QColor(bean_c))
+        p.drawPath(dome)
+        # 翻边（横向罗纹带）
+        p.setBrush(QColor(_mix(bean_c, "#FFFFFF", 0.25)))
+        p.drawRoundedRect(QRectF(cx - 0.41 * s, top + 0.07 * s,
+                                 0.82 * s, 0.13 * s), 0.05 * s, 0.05 * s)
+        # 绒球
+        p.setBrush(QColor("#FFFFFF"))
+        p.drawEllipse(QRectF(cx - 0.085 * s, top - 0.23 * s, 0.17 * s, 0.15 * s))
 
 
 
@@ -874,18 +869,18 @@ def _draw_prop(p, prop, cx, cy, s, colors, side=None, wx=None, wy=None):
                       Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawLine(QPointF(ux, uy + r * 0.18), QPointF(wx, wy))
     elif prop == "scarf":
-        # 围巾绕脖子，暖红色（跟随新脖子位置）
+        # 围巾绕脖子，暖红色
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor("#D65A5A"))
-        p.drawEllipse(QRectF(cx - s * 0.38, cy + s * 0.50,
+        p.drawEllipse(QRectF(cx - s * 0.38, cy + s * 0.22,
                              s * 0.22, s * 0.18))
-        p.drawEllipse(QRectF(cx + s * 0.16, cy + s * 0.50,
+        p.drawEllipse(QRectF(cx + s * 0.16, cy + s * 0.22,
                              s * 0.22, s * 0.18))
         mid = QPainterPath()
-        mid.moveTo(cx - s * 0.28, cy + s * 0.52)
-        mid.quadTo(cx, cy + s * 0.64, cx + s * 0.28, cy + s * 0.52)
-        mid.lineTo(cx + s * 0.26, cy + s * 0.60)
-        mid.quadTo(cx, cy + s * 0.70, cx - s * 0.26, cy + s * 0.60)
+        mid.moveTo(cx - s * 0.28, cy + s * 0.24)
+        mid.quadTo(cx, cy + s * 0.36, cx + s * 0.28, cy + s * 0.24)
+        mid.lineTo(cx + s * 0.26, cy + s * 0.32)
+        mid.quadTo(cx, cy + s * 0.42, cx - s * 0.26, cy + s * 0.32)
         mid.closeSubpath()
         p.drawPath(mid)
 
@@ -1306,7 +1301,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         if tw_rot:
             p.restore()
 
-    # ---- 半身：脖子 + 斜方肌肩膀 + 躯干（解决"头直接贴在身体上"的衔接问题） ----
+    # ---- 半身：圆润身体（头之前绘制，头会自然盖住肩线） ----
     if body:
         body_k = _BODY_SHAPE.get(shape, "round")
         if body_k == "slim":          # 狗 / 猴：略修长
@@ -1325,52 +1320,23 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             bw, shw = s * 0.92, s * 0.58
             by0, by1 = cy + s * 0.24, cy + s * 1.02
             belly_w, belly_h = 0.21, 0.48
-
-        # 脖子 + 肩膀结构
-        neck_w = s * 0.18              # 脖子半宽
-        neck_top = cy + 0.30 * s
-        neck_base = cy + 0.58 * s
-        shoulder_y = cy + 0.60 * s
-        shoulder_w = bw / 2 * 0.80   # 肩峰半宽（略内收，避免肩太宽）
-
         bp = QPainterPath()
-        # 左肩峰 → 左颈根（斜方肌下滑）
-        bp.moveTo(cx - shoulder_w, shoulder_y)
-        bp.cubicTo(cx - shoulder_w, shoulder_y + 0.05 * s,
-                   cx - neck_w, neck_base + 0.03 * s,
-                   cx - neck_w, neck_base)
-        # 左脖子（圆柱感）
-        bp.cubicTo(cx - neck_w, cy + 0.46 * s,
-                   cx - neck_w * 0.85, cy + 0.36 * s,
-                   cx - neck_w * 0.75, neck_top)
-        # 脖子顶（被头盖住大部分）
-        bp.quadTo(cx, neck_top - 0.04 * s, cx + neck_w * 0.75, neck_top)
-        # 右脖子
-        bp.cubicTo(cx + neck_w * 0.85, cy + 0.36 * s,
-                   cx + neck_w, cy + 0.46 * s,
-                   cx + neck_w, neck_base)
-        # 右颈根 → 右肩峰
-        bp.cubicTo(cx + neck_w, neck_base + 0.03 * s,
-                   cx + shoulder_w, shoulder_y + 0.05 * s,
-                   cx + shoulder_w, shoulder_y)
-        # 右肩峰 → 右侧身体 → 底部 → 左侧 → 闭合
-        bp.cubicTo(cx + shoulder_w, cy + 0.72 * s,
-                   cx + bw / 2, by1 - 0.20 * s,
-                   cx + bw / 2, by1 - 0.14 * s)
-        bp.quadTo(cx, by1 + 0.08 * s, cx - bw / 2, by1 - 0.14 * s)
-        bp.cubicTo(cx - bw / 2, by1 - 0.20 * s,
-                   cx - shoulder_w, cy + 0.72 * s,
-                   cx - shoulder_w, shoulder_y)
+        bp.moveTo(cx - shw / 2, by0)
+        bp.cubicTo(cx - bw / 2, by0 + 0.10 * s,
+                   cx - bw / 2, by1 - 0.20 * s,
+                   cx - bw / 2, by1 - 0.14 * s)
+        bp.quadTo(cx, by1 + 0.08 * s, cx + bw / 2, by1 - 0.14 * s)
+        bp.cubicTo(cx + bw / 2, by1 - 0.20 * s,
+                   cx + bw / 2, by0 + 0.10 * s,
+                   cx + shw / 2, by0)
         bp.closeSubpath()
-
-        bg = QLinearGradient(cx, neck_top, cx, by1)
+        bg = QLinearGradient(cx, by0, cx, by1)
         bg.setColorAt(0, QColor(colors["fur"]))
         bg.setColorAt(1, QColor(colors["fur_d"]))
         p.setPen(outline)
         p.setBrush(bg)
         p.drawPath(bp)
-
-        # 肚皮浅色（位置随新躯干下移）
+        # 肚皮浅色
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(colors["fur_l"]))
         p.drawEllipse(QRectF(cx - belly_w * s, by0 + 0.10 * s,
@@ -1555,9 +1521,9 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     for sign in (-1, 1):
         p.drawEllipse(QRectF(cx + sign * 0.30 * s - 0.085 * s, cy + 0.04 * s, 0.17 * s, 0.105 * s))
 
-    # ---- 头顶毛发（物种差异化，避免所有脑袋都是同一个光椭圆） ----
-    _draw_hair(p, cx, cy, s, colors, outline, _HAIR.get(shape, "fluff"),
-               head_top, hw, t)
+    # ---- 头顶帽子（物种差异化；这种 Q 版风格不画头发） ----
+    _draw_hat(p, cx, cy, s, colors, outline, _HAT.get(shape, "none"),
+              head_top, hw, t)
 
     # ---- 胡须（猫/鼠/兔/虎/龙；深毛色用浅须，浅毛色用经典橘须） ----
     if shape in ("cat", "rat", "rabbit", "tiger", "dragon"):
@@ -1779,48 +1745,48 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
 
     # ---- 半身：手臂 + 爪掌 + 道具 ----
     if body:
-        # 肩峰位置与身体路径对齐（解决手臂"从头上长出"的问题）
+        # 肩线位置与圆润身体对齐：头盖住肩线上方，手臂从身体两侧自然伸出
         body_k = _BODY_SHAPE.get(shape, "round")
         if body_k == "slim":
-            bw = s * 0.86
+            shw = s * 0.52
         elif body_k == "long":
-            bw = s * 0.82
+            shw = s * 0.50
         elif body_k == "wide":
-            bw = s * 0.98
+            shw = s * 0.62
         else:
-            bw = s * 0.92
-        sx = bw / 2 * 0.92
-        sy0 = cy + 0.60 * s                          # 肩峰在头底下方，更真实
+            shw = s * 0.58
+        sx = shw / 2
+        sy0 = cy + 0.42 * s                          # 肩线（身体顶部，被头盖住）
         sway = math.sin(t * 1.1) * 0.014 * s
         # 默认姿态：双手自然垂在身体两侧（掌心朝身体内侧）
-        L = (cx - sx, sy0, cx - (sx + 0.10 * s), cy + 0.84 * s + sway,
-             cx - (sx + 0.18 * s), cy + 0.66 * s, 1.0, 0.0)
-        R = (cx + sx, sy0, cx + (sx + 0.10 * s), cy + 0.84 * s - sway,
-             cx + (sx + 0.18 * s), cy + 0.66 * s, -1.0, 0.0)
+        L = (cx - sx, sy0, cx - (sx + 0.16 * s), cy + 0.78 * s + sway,
+             cx - (sx + 0.24 * s), cy + 0.58 * s, 1.0, 0.0)
+        R = (cx + sx, sy0, cx + (sx + 0.16 * s), cy + 0.78 * s - sway,
+             cx + (sx + 0.24 * s), cy + 0.58 * s, -1.0, 0.0)
         if prop == "coffee":                        # 双手捧杯到身前（掌心朝上）
-            L = (cx - sx, sy0, cx - 0.24 * s, cy + 0.88 * s + sway,
-                 cx - 0.50 * s, cy + 0.66 * s, 0.0, -1.0)
-            R = (cx + sx, sy0, cx + 0.24 * s, cy + 0.88 * s - sway,
-                 cx + 0.50 * s, cy + 0.66 * s, 0.0, -1.0)
+            L = (cx - sx, sy0, cx - 0.24 * s, cy + 0.82 * s + sway,
+                 cx - 0.50 * s, cy + 0.60 * s, 0.0, -1.0)
+            R = (cx + sx, sy0, cx + 0.24 * s, cy + 0.82 * s - sway,
+                 cx + 0.50 * s, cy + 0.60 * s, 0.0, -1.0)
         elif prop == "coin":                        # 双手捧金币（掌心朝上）
-            L = (cx - sx, sy0, cx - 0.26 * s, cy + 0.86 * s + sway,
-                 cx - 0.52 * s, cy + 0.68 * s, 0.0, -1.0)
-            R = (cx + sx, sy0, cx + 0.26 * s, cy + 0.86 * s - sway,
-                 cx + 0.52 * s, cy + 0.68 * s, 0.0, -1.0)
+            L = (cx - sx, sy0, cx - 0.26 * s, cy + 0.80 * s + sway,
+                 cx - 0.52 * s, cy + 0.62 * s, 0.0, -1.0)
+            R = (cx + sx, sy0, cx + 0.26 * s, cy + 0.80 * s - sway,
+                 cx + 0.52 * s, cy + 0.62 * s, 0.0, -1.0)
         elif prop == "bag":                         # 右手拎包（掌心朝内/左）
-            R = (cx + sx, sy0, cx + (sx + 0.10 * s), cy + 0.80 * s - sway,
-                 cx + (sx + 0.18 * s), cy + 0.62 * s, -1.0, 0.0)
+            R = (cx + sx, sy0, cx + (sx + 0.16 * s), cy + 0.74 * s - sway,
+                 cx + (sx + 0.24 * s), cy + 0.56 * s, -1.0, 0.0)
         elif prop == "fan":                         # 右手举扇（掌心朝内/左）
-            R = (cx + sx, sy0 - 0.02 * s, cx + (sx + 0.10 * s), cy + 0.52 * s,
-                 cx + (sx + 0.18 * s), cy + 0.42 * s, -1.0, 0.0)
+            R = (cx + sx, sy0 - 0.02 * s, cx + (sx + 0.16 * s), cy + 0.46 * s,
+                 cx + (sx + 0.24 * s), cy + 0.36 * s, -1.0, 0.0)
         elif prop == "umbrella":                    # 右手举伞（掌心朝内/左）
-            R = (cx + sx, sy0 - 0.04 * s, cx + (sx + 0.02 * s), cy + 0.16 * s,
-                 cx + (sx + 0.14 * s), cy + 0.26 * s, -1.0, 0.0)
+            R = (cx + sx, sy0 - 0.04 * s, cx + sx * 0.90, cy + 0.16 * s,
+                 cx + (sx + 0.06 * s), cy + 0.26 * s, -1.0, 0.0)
         elif prop == "scarf":                       # 冷：双手抱胸（掌心朝内）
-            L = (cx - sx, sy0, cx - 0.22 * s, cy + 0.76 * s + sway,
-                 cx - 0.48 * s, cy + 0.62 * s, 1.0, 0.0)
-            R = (cx + sx, sy0, cx + 0.22 * s, cy + 0.76 * s - sway,
-                 cx + 0.48 * s, cy + 0.62 * s, -1.0, 0.0)
+            L = (cx - sx, sy0, cx - 0.22 * s, cy + 0.72 * s + sway,
+                 cx - 0.48 * s, cy + 0.58 * s, 1.0, 0.0)
+            R = (cx + sx, sy0, cx + 0.22 * s, cy + 0.72 * s - sway,
+                 cx + 0.48 * s, cy + 0.58 * s, -1.0, 0.0)
         if excited and prop is None:                # 快下班：双手举起欢呼（掌心朝前）
             L = (cx - sx, sy0, cx - 0.54 * s, cy + 0.24 * s,
                  cx - 0.60 * s, cy + 0.30 * s, 0.0, -1.0)
@@ -2132,10 +2098,10 @@ class RestDaysDialog(QDialog):
         return [i for i, b in enumerate(self.boxes) if b.isChecked()]
 
 
-# 各物种"头顶以上"的延伸系数（耳朵/角/鸡冠），半身模式用来自动定尺寸防出界
+# 各物种"头顶以上"的延伸系数（耳朵/角/鸡冠/帽子），半身模式用来自动定尺寸防出界
 _TOP_EXT = {"rabbit": 0.86, "ox": 0.76, "dragon": 0.78,
            "sheep": 0.72, "rooster": 0.64, "horse": 0.84,
-           "monkey": 0.70}
+           "monkey": 0.80, "dog": 0.72, "rat": 0.80}
 
 # 各物种身体形态（默认 round = 圆润标准）
 _BODY_SHAPE = {"horse": "long", "snake": "long", "ox": "wide", "pig": "wide",
@@ -2157,12 +2123,9 @@ _HEAD = {
     "panda":  (0.88, 0.86, 0.00),
 }
 
-# 各物种头顶毛发（默认 fluff = 短绒毛簇；避免"光椭圆"和"天线呆毛"）
-_HAIR = {
-    "dog": "bangs", "monkey": "bangs", "dragon": "crest",
-    "snake": "none", "sheep": "none", "horse": "none", "rooster": "none",
-    "ox": "fluff", "pig": "none", "rat": "fluff", "rabbit": "fluff",
-    "panda": "none",
+# 各物种帽子（这种 Q 版风格不画头发，改用可爱小帽做差异化）
+_HAT = {
+    "dog": "cap", "monkey": "beanie", "rat": "beanie",
 }
 
 # 各物种眼睛形态：(纵向偏移, 半宽, 全高, 是否竖瞳)
