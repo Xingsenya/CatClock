@@ -1481,15 +1481,17 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             tuft.closeSubpath()
             p.drawPath(tuft)
 
-    # ---- 顶部受光（体积感） ----
+    # ---- 顶部受光（体积感）：小而柔的斜上光斑，不是脑门大补丁 ----
     head_clip = QPainterPath()
     head_clip.addEllipse(head_rect)
     p.setClipPath(head_clip)
-    sheen = QColor(colors["fur_l"])
-    sheen.setAlpha(105)
+    g = QRadialGradient(QPointF(cx - 0.12 * s, cy - 0.34 * s), 0.34 * s)
+    g.setColorAt(0, _mix(colors["fur_l"], "#FFFFFF", 0.26))
+    g.setColorAt(0.6, _mix(colors["fur_l"], "#FFFFFF", 0.10))
+    g.setColorAt(1, QColor(0, 0, 0, 0))
     p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(sheen)
-    p.drawEllipse(QRectF(cx - 0.40 * s, cy - 0.48 * s, 0.74 * s, 0.40 * s))
+    p.setBrush(g)
+    p.drawEllipse(QRectF(cx - 0.48 * s, cy - 0.70 * s, 0.72 * s, 0.72 * s))
     p.setClipping(False)
 
     # ---- 脸颊浅色 ----
