@@ -534,11 +534,26 @@ def _draw_hand(p, x, y, s, colors, outline, kind="paw", palm_nx=0, palm_ny=1):
     p.drawEllipse(QRectF(x - wr_w * 0.55, y - wr_w * 0.55,
                          wr_w * 1.10, wr_w * 1.10))
 
-    # 手掌主体：圆润拳套（标准方向掌心朝上，椭圆上半为掌心侧）
+    # 手掌主体：圆润拳套 + 趾瓣（不再是光溜溜的蛋）
     a, b = r * 0.92, r * 0.74
+    lobes = {"paw": 3, "dog_paw": 4, "monkey": 4, "fingers": 4,
+             "puff_paw": 2, "claw": 3}.get(kind, 0)
+    hp = QPainterPath()
+    hp.addEllipse(QRectF(hx - a, hy - b, a * 2, b * 2))
+    if lobes and detail >= 1:
+        lr = r * 0.34
+        for i in range(lobes):
+            t2 = (i / (lobes - 1) - 0.5) if lobes > 1 else 0.0
+            hp.addEllipse(QRectF(hx + t2 * a * 1.15 - lr, hy - b * 0.62 - lr,
+                                 lr * 2, lr * 2))
+        if detail >= 2 and kind in ("paw", "dog_paw", "monkey"):
+            tr = r * 0.26                       # 拇指（掌心侧偏外）
+            hp.addEllipse(QRectF(hx - a * 0.88 - tr, hy - b * 0.10 - tr,
+                                 tr * 2, tr * 2))
+        hp = hp.simplified()
     p.setPen(outline)
     p.setBrush(QColor(base_col))
-    p.drawEllipse(QRectF(hx - a, hy - b, a * 2, b * 2))
+    p.drawPath(hp)
 
     if kind == "hoof":                                  # 马 / 牛 / 羊：单蹄
         hc = _mix(colors["fur_d"], "#3B2A22", 0.42)
@@ -691,6 +706,76 @@ def _draw_arm(p, sx, sy, ex, ey, bx, by, s, colors, outline):
     p.setPen(outline)
     p.setBrush(g)
     p.drawPath(path)
+    # 肩部圆球：抹掉手臂根部与身体之间的硬接缝
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(colors["fur"]))
+    p.drawEllipse(QRectF(sx - sh_w * 0.40, sy - sh_w * 0.40,
+                         sh_w * 0.80, sh_w * 0.80))
+
+
+def _hair_strand(p, x, y, dx0, dy0, dx1, dy1, w0, w1):
+    """一根锥形毛发：根部 (x,y) 宽 w0，控制点偏移 (dx0,dy0)，尖端 (x+dx1,y+dy1) 宽 w1。"""
+    path = QPainterPath()
+    path.moveTo(x - w0 * 0.5, y)
+    path.quadTo(x + dx0 - w0 * 0.30, y + dy0, x + dx1 - w1 * 0.5, y + dy1)
+    path.lineTo(x + dx1 + w1 * 0.5, y + dy1)
+    path.quadTo(x + dx0 + w0 * 0.30, y + dy0, x + w0 * 0.5, y)
+    path.closeSubpath()
+    p.drawPath(path)
+
+
+def _draw_hair(p, cx, cy, s, colors, outline, style, head_top, hw=0.88, t=0.0):
+    """头顶毛发：让各物种的脑袋不再是同一个光椭圆。
+    style: tuft（呆毛）/ bangs（刘海）/ spike（龙角间尖刺）/ none。
+    """
+    if style == "none":
+        return
+    fur_l = colors["fur_l"]
+    fur_d = colors["fur_d"]
+    top = head_top
+    fine = s >= 110                      # 小尺寸下省略细碎毛，避免糊成一团
+    p.setPen(outline)
+    p.setBrush(QColor(fur_l))
+
+    if style == "tuft":
+        sw = math.sin(t * 1.5) * 0.014 * s
+        _hair_strand(p, cx - 0.02 * s + sw * 0.4, top + 0.07 * s,
+                     sw - 0.05 * s, -0.10 * s, sw + 0.08 * s, -0.21 * s,
+                     s * 0.062, s * 0.022)
+        if fine:
+            for sign in (-1, 1):
+                _hair_strand(p, cx + sign * 0.16 * s, top + 0.08 * s,
+                             sign * 0.02 * s, -0.09 * s, sign * 0.10 * s, -0.16 * s,
+                             s * 0.048, s * 0.018)
+    elif style == "bangs":
+        # 额前刘海：只覆盖中间，不贴到耳侧，避免像"头盔"
+        bw = 0.22 * s
+        b = QPainterPath()
+        b.moveTo(cx - bw * 0.90, top + 0.08 * s)
+        b.cubicTo(cx - bw * 0.75, top - 0.12 * s,
+                  cx + bw * 0.75, top - 0.12 * s,
+                  cx + bw * 0.90, top + 0.08 * s)
+        b.quadTo(cx + 0.07 * s, top + 0.03 * s, cx + 0.02 * s, top + 0.14 * s)
+        b.quadTo(cx, top + 0.03 * s, cx - 0.02 * s, top + 0.14 * s)
+        b.quadTo(cx - 0.07 * s, top + 0.03 * s, cx - bw * 0.90, top + 0.08 * s)
+        b.closeSubpath()
+        p.drawPath(b)
+        if fine:
+            for sign in (-1, 1):       # 两侧鬓角垂缕
+                _hair_strand(p, cx + sign * bw * 0.82, top + 0.09 * s,
+                             sign * 0.03 * s, 0.05 * s, sign * 0.06 * s, 0.12 * s,
+                             s * 0.050, s * 0.018)
+    elif style == "spike":
+        p.setBrush(QColor(colors.get("mane") or fur_d))
+        for dx, hgt in ((-0.11, 0.13), (0.0, 0.19), (0.11, 0.13)):
+            tri = QPainterPath()
+            tri.moveTo(cx + dx * s - 0.048 * s, top + 0.06 * s)
+            tri.lineTo(cx + dx * s + 0.048 * s, top + 0.06 * s)
+            tri.lineTo(cx + dx * s + 0.012 * s, top - hgt * s)
+            tri.closeSubpath()
+            p.drawPath(tri)
+        return
+
 
 
 def _draw_prop(p, prop, cx, cy, s, colors, side=None, wx=None, wy=None):
@@ -854,12 +939,9 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         p.translate(-cx, -cy)
 
     shape = colors.get("shape", "cat")     # 动物脸型（默认猫）
-    if shape == "horse":                   # 马脸更长
-        head_rect = QRectF(cx - 0.40 * s, cy - 0.47 * s, 0.80 * s, 0.98 * s)
-    elif shape == "monkey":                # 猴：心形脸，下巴略尖
-        head_rect = QRectF(cx - 0.43 * s, cy - 0.43 * s, 0.86 * s, 0.90 * s)
-    else:
-        head_rect = QRectF(cx - 0.44 * s, cy - 0.42 * s, 0.88 * s, 0.86 * s)
+    hw, hh, hdy = _HEAD.get(shape, (0.88, 0.86, 0.0))   # 物种头型：宽 / 高 / 中心偏移
+    head_rect = QRectF(cx - hw / 2 * s, cy + (hdy - hh / 2) * s, hw * s, hh * s)
+    head_top = head_rect.top()
 
     # ---- 尾巴（最底层；按物种分样式，不再所有角色共用猫尾） ----
     if tail_phase is not None:
@@ -1451,6 +1533,10 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     for sign in (-1, 1):
         p.drawEllipse(QRectF(cx + sign * 0.30 * s - 0.085 * s, cy + 0.04 * s, 0.17 * s, 0.105 * s))
 
+    # ---- 头顶毛发（物种差异化，避免所有脑袋都是同一个光椭圆） ----
+    _draw_hair(p, cx, cy, s, colors, outline, _HAIR.get(shape, "tuft"),
+               head_top, hw, t)
+
     # ---- 胡须（猫/鼠/兔/虎/龙；深毛色用浅须，浅毛色用经典橘须） ----
     if shape in ("cat", "rat", "rabbit", "tiger", "dragon"):
         hp = QPen(QColor("#CFC9DC") if dark else QColor("#E0AC76"), max(1.0, s * 0.012))
@@ -2021,6 +2107,28 @@ _TOP_EXT = {"rabbit": 0.86, "ox": 0.76, "dragon": 0.78,
 # 各物种身体形态（默认 round = 圆润标准）
 _BODY_SHAPE = {"horse": "long", "snake": "long", "ox": "wide", "pig": "wide",
                "dog": "slim", "monkey": "slim"}
+
+# 各物种头型：(宽, 高, 中心纵向偏移)，默认 (0.88, 0.86, 0)
+# 马/蛇修长，牛/猪/虎宽扁，鼠/兔小巧，猴心形略高
+_HEAD = {
+    "horse":  (0.80, 0.98, -0.03),
+    "snake":  (0.78, 0.88, 0.00),
+    "ox":     (0.94, 0.84, 0.02),
+    "pig":    (0.92, 0.82, 0.02),
+    "tiger":  (0.94, 0.84, 0.00),
+    "rat":    (0.82, 0.84, 0.01),
+    "rabbit": (0.86, 0.88, 0.00),
+    "monkey": (0.86, 0.90, -0.01),
+    "dog":    (0.88, 0.86, 0.00),
+    "dragon": (0.86, 0.88, 0.00),
+}
+
+# 各物种头顶毛发（默认 tuft = 呆毛；解决"所有脑袋都是光椭圆"的问题）
+_HAIR = {
+    "dog": "bangs", "monkey": "bangs", "dragon": "spike",
+    "snake": "none", "sheep": "none", "horse": "none", "rooster": "none",
+    "ox": "tuft", "pig": "none", "rat": "tuft", "rabbit": "tuft",
+}
 
 # 各物种眼睛形态：(纵向偏移, 半宽, 全高, 是否竖瞳)
 # 牛/马 → 小横椭圆、位置偏高；猪/猴 → 大而圆（猴位置偏低）；
