@@ -715,13 +715,13 @@ def _draw_arm(p, sx, sy, ex, ey, bx, by, s, colors, outline):
 
 
 def _draw_hat(p, cx, cy, s, colors, outline, style, head_top, hw=0.88, t=0.0):
-    """头顶帽子：cap（棒球帽）/ beanie（毛线帽）。这种 Q 版风格不画头发。"""
+    """头顶帽子。style: cap / beanie / beret / straw / party / crown。"""
     if style == "none":
         return
     top = head_top
-    line_c = outline.color()
+    p.setPen(outline)
     if style == "cap":
-        # 帽身：圆顶盖在头顶上半，颜色明快
+        # 棒球帽：圆顶 + 前挑帽檐 + 顶纽
         cap_c = "#E8734A"
         dome = QPainterPath()
         dome.moveTo(cx - 0.40 * s, top + 0.16 * s)
@@ -730,10 +730,8 @@ def _draw_hat(p, cx, cy, s, colors, outline, style, head_top, hw=0.88, t=0.0):
                      cx + 0.40 * s, top + 0.16 * s)
         dome.quadTo(cx, top + 0.26 * s, cx - 0.40 * s, top + 0.16 * s)
         dome.closeSubpath()
-        p.setPen(outline)
         p.setBrush(QColor(cap_c))
         p.drawPath(dome)
-        # 帽檐：向右前方挑出
         brim = QPainterPath()
         brim.moveTo(cx + 0.02 * s, top + 0.13 * s)
         brim.quadTo(cx + 0.36 * s, top + 0.06 * s, cx + 0.52 * s, top + 0.16 * s)
@@ -741,28 +739,91 @@ def _draw_hat(p, cx, cy, s, colors, outline, style, head_top, hw=0.88, t=0.0):
         brim.closeSubpath()
         p.setBrush(QColor(_mix(cap_c, "#000000", 0.18)))
         p.drawPath(brim)
-        # 顶部小圆纽
         p.setBrush(QColor(cap_c))
         p.drawEllipse(QRectF(cx - 0.045 * s, top - 0.075 * s, 0.09 * s, 0.075 * s))
     elif style == "beanie":
         # 毛线帽：圆顶 + 翻边 + 绒球
-        bean_c = "#7FA8D9" if colors.get("shape") != "rat" else "#B48ACB"
+        bean_c = "#7FA8D9"
         dome = QPainterPath()
         dome.moveTo(cx - 0.40 * s, top + 0.14 * s)
         dome.cubicTo(cx - 0.42 * s, top - 0.12 * s,
                      cx + 0.42 * s, top - 0.12 * s,
                      cx + 0.40 * s, top + 0.14 * s)
         dome.closeSubpath()
-        p.setPen(outline)
         p.setBrush(QColor(bean_c))
         p.drawPath(dome)
-        # 翻边（横向罗纹带）
         p.setBrush(QColor(_mix(bean_c, "#FFFFFF", 0.25)))
         p.drawRoundedRect(QRectF(cx - 0.41 * s, top + 0.07 * s,
                                  0.82 * s, 0.13 * s), 0.05 * s, 0.05 * s)
-        # 绒球
         p.setBrush(QColor("#FFFFFF"))
         p.drawEllipse(QRectF(cx - 0.085 * s, top - 0.23 * s, 0.17 * s, 0.15 * s))
+    elif style == "beret":
+        # 贝雷帽：扁圆盘斜戴 + 小茎
+        ber_c = "#B14A5A"
+        p.save()
+        p.translate(cx - 0.06 * s, top + 0.02 * s)
+        p.rotate(-8)
+        p.setBrush(QColor(ber_c))
+        p.drawEllipse(QRectF(-0.42 * s, -0.13 * s, 0.84 * s, 0.26 * s))
+        p.setBrush(QColor(_mix(ber_c, "#000000", 0.15)))
+        p.drawEllipse(QRectF(-0.30 * s, -0.04 * s, 0.60 * s, 0.10 * s))
+        p.restore()
+        p.setBrush(QColor(_mix(ber_c, "#000000", 0.3)))
+        p.drawEllipse(QRectF(cx - 0.10 * s, top - 0.135 * s, 0.08 * s, 0.06 * s))
+    elif style == "straw":
+        # 草帽：宽檐 + 浅 dome + 带子
+        st_c = "#E8C87E"
+        p.setBrush(QColor(_mix(st_c, "#000000", 0.12)))
+        p.drawEllipse(QRectF(cx - 0.58 * s, top - 0.015 * s, 1.16 * s, 0.13 * s))
+        dome = QPainterPath()
+        dome.moveTo(cx - 0.30 * s, top + 0.03 * s)
+        dome.cubicTo(cx - 0.32 * s, top - 0.14 * s,
+                     cx + 0.32 * s, top - 0.14 * s,
+                     cx + 0.30 * s, top + 0.03 * s)
+        dome.closeSubpath()
+        p.setBrush(QColor(st_c))
+        p.drawPath(dome)
+        p.setBrush(QColor("#D65A5A"))
+        p.drawRoundedRect(QRectF(cx - 0.30 * s, top - 0.035 * s,
+                                 0.60 * s, 0.075 * s), 0.03 * s, 0.03 * s)
+    elif style == "party":
+        # 派对帽：斜锥 + 白条纹 + 绒球
+        cone_c = "#7FB5E8"
+        p.setBrush(QColor(cone_c))
+        cone = QPainterPath()
+        cone.moveTo(cx - 0.30 * s, top + 0.10 * s)
+        cone.lineTo(cx + 0.06 * s, top - 0.40 * s)
+        cone.lineTo(cx + 0.30 * s, top + 0.10 * s)
+        cone.closeSubpath()
+        p.drawPath(cone)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#FFFFFF"))
+        for k in (0.30, 0.58):       # 两条斜向白纹
+            yb = top + 0.10 * s - k * 0.50 * s
+            p.drawEllipse(QRectF(cx - 0.30 * s + k * 0.36 * s - 0.11 * s, yb - 0.028 * s,
+                                 0.22 * s, 0.056 * s))
+        p.setPen(outline)
+        p.setBrush(QColor("#FFD666"))
+        p.drawEllipse(QRectF(cx - 0.02 * s, top - 0.50 * s, 0.16 * s, 0.14 * s))
+    elif style == "crown":
+        # 皇冠：金圈 + 三尖 + 宝石
+        gd_c = "#F2C14E"
+        p.setBrush(QColor(gd_c))
+        band = QPainterPath()
+        band.moveTo(cx - 0.30 * s, top + 0.10 * s)
+        band.lineTo(cx - 0.30 * s, top - 0.02 * s)
+        band.lineTo(cx - 0.15 * s, top + 0.05 * s)
+        band.lineTo(cx, top - 0.10 * s)
+        band.lineTo(cx + 0.15 * s, top + 0.05 * s)
+        band.lineTo(cx + 0.30 * s, top - 0.02 * s)
+        band.lineTo(cx + 0.30 * s, top + 0.10 * s)
+        band.closeSubpath()
+        p.drawPath(band)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#E85A6E"))
+        p.drawEllipse(QRectF(cx - 0.045 * s, top + 0.015 * s, 0.09 * s, 0.09 * s))
+        p.setBrush(QColor(255, 255, 255, 90))
+        p.drawEllipse(QRectF(cx - 0.26 * s, top - 0.01 * s, 0.07 * s, 0.05 * s))
 
 
 
@@ -887,10 +948,11 @@ def _draw_prop(p, prop, cx, cy, s, colors, side=None, wx=None, wy=None):
 
 def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False,
              scared=False, look=(0.0, 0.0), mood=None, tail_phase=None, t=0.0,
-             dim25=False, pet_k=None, ear_tw=None, body=False, prop=None):
+             dim25=False, pet_k=None, ear_tw=None, body=False, prop=None, hat="auto"):
     """画一只可爱的猫脑袋。s 为整体直径；look 为瞳孔偏移(-1..1)；mood 待机动作；tail_phase 摇尾
     dim25=2.5D 模式（投影/倾斜/挤压）；pet_k 摸猫进度 0..1；ear_tw=(方向±1, 进度0..1) 耳抖
-    body=半身模式（圆身体+前爪）；prop=手上的道具（coffee/umbrella/fan/scarf/coin/bag）"""
+    body=半身模式（圆身体+前爪）；prop=手上的道具（coffee/umbrella/fan/scarf/coin/bag）
+    hat=帽子：auto 按物种默认 / none 不戴 / cap/beanie/beret/straw/party/crown"""
     if colors is None:
         colors = CHARACTERS["橘猫"]
     p.save()
@@ -1481,19 +1543,6 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             tuft.closeSubpath()
             p.drawPath(tuft)
 
-    # ---- 顶部受光（体积感）：小而柔的斜上光斑，不是脑门大补丁 ----
-    head_clip = QPainterPath()
-    head_clip.addEllipse(head_rect)
-    p.setClipPath(head_clip)
-    g = QRadialGradient(QPointF(cx - 0.12 * s, cy - 0.34 * s), 0.34 * s)
-    g.setColorAt(0, _mix(colors["fur_l"], "#FFFFFF", 0.26))
-    g.setColorAt(0.6, _mix(colors["fur_l"], "#FFFFFF", 0.10))
-    g.setColorAt(1, QColor(0, 0, 0, 0))
-    p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(g)
-    p.drawEllipse(QRectF(cx - 0.48 * s, cy - 0.70 * s, 0.72 * s, 0.72 * s))
-    p.setClipping(False)
-
     # ---- 脸颊浅色 ----
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(QColor(colors["fur_l"]))
@@ -1511,6 +1560,8 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         p.drawPath(heart)
 
     # ---- 下巴阴影（贴合头部的下缘暗部） ----
+    head_clip = QPainterPath()
+    head_clip.addEllipse(head_rect)
     p.setClipPath(head_clip)
     chin = QColor(colors["fur_d"])
     chin.setAlpha(130)
@@ -1523,8 +1574,9 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     for sign in (-1, 1):
         p.drawEllipse(QRectF(cx + sign * 0.30 * s - 0.085 * s, cy + 0.04 * s, 0.17 * s, 0.105 * s))
 
-    # ---- 头顶帽子（物种差异化；这种 Q 版风格不画头发） ----
-    _draw_hat(p, cx, cy, s, colors, outline, _HAT.get(shape, "none"),
+    # ---- 头顶帽子：auto 按物种默认，可显式指定或 none ----
+    hat_style = _HAT.get(shape, "none") if hat in (None, "auto") else hat
+    _draw_hat(p, cx, cy, s, colors, outline, hat_style,
               head_top, hw, t)
 
     # ---- 胡须（猫/鼠/兔/虎/龙；深毛色用浅须，浅毛色用经典橘须） ----
@@ -2130,6 +2182,10 @@ _HAT = {
     "dog": "cap", "monkey": "beanie", "rat": "beanie",
 }
 
+# 各帽型的"头顶以上"延伸系数（自动定尺寸防出界用）
+_HAT_EXT = {"cap": 0.28, "beanie": 0.34, "beret": 0.20, "straw": 0.16,
+            "party": 0.50, "crown": 0.28, "none": 0.0}
+
 # 各物种眼睛形态：(纵向偏移, 半宽, 全高, 是否竖瞳)
 # 牛/马 → 小横椭圆、位置偏高；猪/猴 → 大而圆（猴位置偏低）；
 # 龙/蛇 → 细长竖瞳；鸡 → 小而锐利；虎 → 横置带凶感
@@ -2303,6 +2359,10 @@ class CatClock(QWidget):
             return cs, ccx, H / 2 + dy
         shape = self.char_colors().get("shape", "cat")
         top = _TOP_EXT.get(shape, 0.64)
+        # 帽子占的头顶空间（auto = 物种默认帽）
+        hat = str(self.cfg.get("hat", "auto"))
+        hat_style = _HAT.get(shape, "none") if hat == "auto" else hat
+        top = max(top, _HAT_EXT.get(hat_style, 0.0))
         if prop == "__auto__":
             prop = self._prop_now()
         if prop == "umbrella":
@@ -2412,6 +2472,20 @@ class CatClock(QWidget):
         self.act_body.setChecked(bool(self.cfg.get("body", True)))
         self.act_body.triggered.connect(lambda on: self.toggle_cfg("body", on))
 
+        # 帽子子菜单
+        self.hat_menu = QMenu("帽子", self)
+        grp_h = QActionGroup(self)
+        cur_hat = str(self.cfg.get("hat", "auto"))
+        for key, name in (("auto", "自动（按角色）"), ("none", "不戴帽子"),
+                          ("cap", "棒球帽"), ("beanie", "毛线帽"),
+                          ("beret", "贝雷帽"), ("straw", "草帽"),
+                          ("party", "派对帽"), ("crown", "皇冠")):
+            a = QAction(name, self, checkable=True)
+            a.setChecked(cur_hat == key)
+            a.triggered.connect(lambda _, v=key: self.set_hat(v))
+            grp_h.addAction(a)
+            self.hat_menu.addAction(a)
+
         # 大小子菜单
         self.size_menu = QMenu("大小（也可在窗口上滚轮）", self)
         grp_s = QActionGroup(self)
@@ -2464,6 +2538,7 @@ class CatClock(QWidget):
         self.menu.addAction(self.act_afk)
         self.menu.addAction(self.act_25d)
         self.menu.addAction(self.act_body)
+        self.menu.addMenu(self.hat_menu)
         self.menu.addSeparator()
         self.menu.addMenu(self.size_menu)
         self.menu.addSeparator()
@@ -2560,6 +2635,11 @@ class CatClock(QWidget):
     def toggle_cfg(self, key, on):
         self.cfg[key] = bool(on)
         save_cfg(self.cfg)
+
+    def set_hat(self, style):
+        self.cfg["hat"] = style
+        save_cfg(self.cfg)
+        self.update()
 
     def set_payday(self):
         cur = str(self.cfg.get("payday", 0) or "")
@@ -2947,7 +3027,7 @@ class CatClock(QWidget):
                  scared=thunder or too_hot, look=look, mood=mood,
                  tail_phase=tail_phase, t=self.t0, dim25=dim25,
                  pet_k=self.meow_t if self.meow_t < 1.0 else None, ear_tw=ear_tw,
-                 body=body, prop=prop)
+                 body=body, prop=prop, hat=str(self.cfg.get("hat", "auto")))
 
         # 天气小图标（右上角）
         if self.weather and not mini:
