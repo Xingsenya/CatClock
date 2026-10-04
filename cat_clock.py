@@ -1064,9 +1064,9 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
 
     # ---- 耳朵（按物种分形状） ----
     ear_shapes = {"rat": "round", "monkey": "monkey", "rabbit": "long",
-                  "dog": "flop", "pig": "flop", "sheep": "flop",
+                  "dog": "flop", "pig": "flop", "sheep": "sheep_flop",
                   "snake": "none", "rooster": "none",
-                  "tiger": "tiger", "horse": "horse"}
+                  "tiger": "tiger", "horse": "horse", "dragon": "dragon"}
     eshape = ear_shapes.get(shape, "tri")
     for idx, sign in enumerate((-1, 1)):
         if eshape == "none":
@@ -1140,7 +1140,59 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(colors["ear_in"]))
             p.drawPath(inner)
-        elif eshape == "flop":                # 垂耳（狗/猪/羊）
+        elif eshape == "sheep_flop":         # 羊：宽大下垂耳（毛绒感）
+            ear = QPainterPath()
+            ear.moveTo(cx + sign * 0.30 * s, cy - 0.34 * s)
+            ear.cubicTo(cx + sign * 0.64 * s, cy - 0.40 * s,
+                        cx + sign * 0.68 * s, cy - 0.02 * s,
+                        cx + sign * 0.52 * s, cy + 0.22 * s)
+            ear.cubicTo(cx + sign * 0.42 * s, cy + 0.06 * s,
+                        cx + sign * 0.33 * s, cy - 0.10 * s,
+                        cx + sign * 0.22 * s, cy - 0.20 * s)
+            ear.closeSubpath()
+            p.setPen(outline)
+            p.setBrush(QColor(colors["fur_d"]))
+            p.drawPath(ear)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(colors["ear_in"]))
+            p.drawEllipse(QRectF(cx + sign * 0.42 * s - 0.085 * s, cy - 0.14 * s,
+                                 0.17 * s, 0.24 * s))
+            # 羊毛绒边：耳廓外沿三个小弧
+            p.setPen(QPen(QColor(colors["wool"] if colors.get("wool") else colors["fur_l"]),
+                          max(1.0, s * 0.014), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            for k in (0.0, 0.35, 0.70):
+                p.drawArc(QRectF(cx + sign * (0.36 + k * 0.16) * s - 0.09 * s,
+                                 cy + (-0.30 + k * 0.34) * s,
+                                 0.18 * s, 0.18 * s),
+                          (200 if sign < 0 else 120) * 16, 140 * 16)
+        elif eshape == "dragon":             # 龙：细长尖耳（向后上方挑起）
+            ear = QPainterPath()
+            ear.moveTo(cx + sign * 0.30 * s, cy - 0.20 * s)
+            ear.cubicTo(cx + sign * 0.44 * s, cy - 0.34 * s,
+                        cx + sign * 0.51 * s, cy - 0.52 * s,
+                        cx + sign * 0.38 * s, cy - 0.66 * s)
+            ear.cubicTo(cx + sign * 0.30 * s, cy - 0.48 * s,
+                        cx + sign * 0.26 * s, cy - 0.32 * s,
+                        cx + sign * 0.19 * s, cy - 0.24 * s)
+            ear.closeSubpath()
+            p.setPen(outline)
+            p.setBrush(QColor(ear_c))
+            p.drawPath(ear)
+            inner = QPainterPath()
+            inner.moveTo(cx + sign * 0.31 * s, cy - 0.26 * s)
+            inner.cubicTo(cx + sign * 0.40 * s, cy - 0.38 * s,
+                          cx + sign * 0.38 * s, cy - 0.52 * s,
+                          cx + sign * 0.34 * s, cy - 0.44 * s)
+            inner.cubicTo(cx + sign * 0.31 * s, cy - 0.36 * s,
+                          cx + sign * 0.29 * s, cy - 0.30 * s,
+                          cx + sign * 0.28 * s, cy - 0.26 * s)
+            inner.closeSubpath()
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(colors["ear_in"]))
+            p.drawPath(inner)
+        elif eshape == "flop":                # 垂耳（狗/猪）
             ear = QPainterPath()
             ear.moveTo(cx + sign * 0.34 * s, cy - 0.30 * s)
             ear.cubicTo(cx + sign * 0.58 * s, cy - 0.34 * s,
@@ -1182,7 +1234,11 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     # ---- 半身：按物种微调身体形态 ----
     if body:
         body_k = _BODY_SHAPE.get(shape, "round")
-        if body_k == "long":          # 马：修长
+        if body_k == "slim":          # 狗 / 猴：略修长
+            bw, shw = s * 0.86, s * 0.52
+            by0, by1 = cy + s * 0.24, cy + s * 1.04
+            belly_w, belly_h = 0.18, 0.46
+        elif body_k == "long":          # 马 / 蛇：修长
             bw, shw = s * 0.82, s * 0.50
             by0, by1 = cy + s * 0.22, cy + s * 1.08
             belly_w, belly_h = 0.34, 0.42
@@ -1215,8 +1271,8 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         p.setBrush(QColor(colors["fur_l"]))
         p.drawEllipse(QRectF(cx - belly_w * s, by0 + 0.10 * s,
                              2 * belly_w * s, belly_h * s))
-        # 蛇鳞纹理（仅在身体 clip 内）
-        if shape == "snake":
+        # 蛇 / 龙：鳞纹（仅在身体 clip 内）
+        if shape in ("snake", "dragon"):
             p.setClipPath(bp)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(colors["fur_d"]))
@@ -1409,8 +1465,10 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
                     QPointF(x0 + sign * 0.26 * s, y + (k - 1) * s * 0.030),
                 )
 
-    # ---- 眼睛 ----
-    eye_y = cy - 0.02 * s
+    # ---- 眼睛（按物种差异化：位置 / 大小 / 竖瞳） ----
+    eye_dy, ewk, ehk, slit = _EYE.get(shape, _EYE_DEFAULT)
+    eye_y = cy + (-0.02 + eye_dy) * s
+    ew2, ehh = ewk * s, ehk * s
     for sign in (-1, 1):
         ex = cx + sign * 0.185 * s
         if excited:
@@ -1433,38 +1491,46 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             p.setPen(QPen(QColor(colors["eye"]), max(1.6, s * 0.030), Qt.PenStyle.SolidLine,
                           Qt.PenCapStyle.RoundCap))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawArc(QRectF(ex - s * 0.085, eye_y - s * 0.055, s * 0.17, s * 0.11),
-                      180 * 16, 180 * 16)
-        else:                             # 大眼 + 虹膜渐变 + 双高光（瞳孔跟随 look 偏移）
+            p.drawArc(QRectF(ex - ew2 * 1.25, eye_y - ehh * 0.29,
+                             ew2 * 2.50, ehh * 0.58), 180 * 16, 180 * 16)
+        else:                             # 物种眼型 + 虹膜渐变 + 双高光（瞳孔跟随 look 偏移）
             lx = max(-1.0, min(1.0, look[0])) * s * 0.030
             ly = max(-1.0, min(1.0, look[1])) * s * 0.022
-            eh = 0.12 if shape == "snake" else 0.19    # 蛇瞳细长
             p.setPen(Qt.PenStyle.NoPen)
             if colors.get("pupil"):            # 熊猫式：白眼 + 深色瞳孔
                 p.setBrush(QColor(colors["eye"]))
             else:                              # 虹膜上浅下深，更有神
-                g = QLinearGradient(ex, eye_y - s * eh / 2, ex, eye_y + s * eh / 2)
+                g = QLinearGradient(ex, eye_y - ehh / 2, ex, eye_y + ehh / 2)
                 g.setColorAt(0, QColor(colors["eye"]))
                 g.setColorAt(1, _mix(colors["eye"], "#14100E", 0.5))
                 p.setBrush(g)
-            p.drawEllipse(QRectF(ex - s * 0.068, eye_y - s * eh / 2, s * 0.136, s * eh))
+            p.drawEllipse(QRectF(ex - ew2, eye_y - ehh / 2, 2 * ew2, ehh))
             # 虹膜外圈细眼线
             p.setPen(QPen(_mix(colors["eye"], "#14100E", 0.55), max(1.0, s * 0.012)))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawEllipse(QRectF(ex - s * 0.068, eye_y - s * eh / 2, s * 0.136, s * eh))
+            p.drawEllipse(QRectF(ex - ew2, eye_y - ehh / 2, 2 * ew2, ehh))
             p.setPen(Qt.PenStyle.NoPen)
-            if colors.get("pupil"):            # 熊猫式：白眼 + 深色瞳孔
+            if colors.get("pupil"):            # 熊猫式：白眼 + 深色瞳孔（高光缩小）
+                pw, ph = ew2 * 0.44, ehh * 0.20
                 p.setBrush(QColor(colors["pupil"]))
-                p.drawEllipse(QRectF(ex - s * 0.030 + lx, eye_y - s * 0.030 + ly, s * 0.060, s * 0.075))
+                p.drawEllipse(QRectF(ex - pw + lx, eye_y - ph + ly + ehh * 0.04,
+                                     2 * pw, 2 * ph))
                 p.setBrush(QColor("#FFFFFF"))
-                p.drawEllipse(QRectF(ex + s * 0.010 + lx, eye_y - s * 0.022 + ly, s * 0.022, s * 0.022))
+                p.drawEllipse(QRectF(ex + ew2 * 0.16 + lx, eye_y - ehh * 0.10 + ly,
+                                     ew2 * 0.26, ew2 * 0.26))
+            elif slit:                         # 龙 / 蛇：竖缝瞳 + 金色虹膜
+                p.setBrush(QColor("#12100E"))
+                pw, ph = ew2 * 0.30, ehh * 0.42
+                p.drawEllipse(QRectF(ex - pw + lx, eye_y - ph + ly, 2 * pw, 2 * ph))
+                p.setBrush(QColor(255, 255, 255, 200))
+                p.drawEllipse(QRectF(ex + ew2 * 0.28 + lx, eye_y - ehh * 0.34 + ly,
+                                     ew2 * 0.34, ehh * 0.24))
             else:
-                hf = eh / 0.19
                 p.setBrush(QColor("#FFFFFF"))
-                p.drawEllipse(QRectF(ex + s * 0.008 + lx, eye_y - s * 0.062 * hf + ly,
-                                     s * 0.052, s * 0.055 * hf + s * 0.015 * (1 - hf)))
-                p.drawEllipse(QRectF(ex - s * 0.048 + lx, eye_y + s * 0.018 * hf + ly,
-                                     s * 0.024, s * 0.024))
+                p.drawEllipse(QRectF(ex + ew2 * 0.12 + lx, eye_y - ehh * 0.33 + ly,
+                                     ew2 * 0.76, ehh * 0.29))
+                p.drawEllipse(QRectF(ex - ew2 * 0.70 + lx, eye_y + ehh * 0.10 + ly,
+                                     ew2 * 0.35, ehh * 0.13))
 
     # ---- 鼻子 & 嘴（按物种分形状；打哈欠统一 O 形嘴） ----
     mouth_pen = QPen(line_c, max(1.3, s * 0.022), Qt.PenStyle.SolidLine,
@@ -1953,7 +2019,23 @@ _TOP_EXT = {"rabbit": 0.86, "ox": 0.76, "dragon": 0.78,
            "monkey": 0.70}
 
 # 各物种身体形态（默认 round = 圆润标准）
-_BODY_SHAPE = {"horse": "long", "ox": "wide", "pig": "wide", "snake": "long"}
+_BODY_SHAPE = {"horse": "long", "snake": "long", "ox": "wide", "pig": "wide",
+               "dog": "slim", "monkey": "slim"}
+
+# 各物种眼睛形态：(纵向偏移, 半宽, 全高, 是否竖瞳)
+# 牛/马 → 小横椭圆、位置偏高；猪/猴 → 大而圆（猴位置偏低）；
+# 龙/蛇 → 细长竖瞳；鸡 → 小而锐利；虎 → 横置带凶感
+_EYE = {
+    "ox":     (-0.055, 0.060, 0.125, False),
+    "horse":  (-0.055, 0.062, 0.130, False),
+    "tiger":  (-0.010, 0.082, 0.150, False),
+    "pig":    (0.015,  0.078, 0.215, False),
+    "monkey": (0.030,  0.076, 0.210, False),
+    "dragon": (-0.010, 0.070, 0.145, True),
+    "snake":  (0.000,  0.066, 0.120, True),
+    "rooster": (-0.020, 0.055, 0.140, False),
+}
+_EYE_DEFAULT = (0.0, 0.068, 0.190, False)
 
 # 各物种的尾巴样式（默认 cat = 细长弯钩猫尾）
 _TAIL = {"rabbit": "puff", "sheep": "puff", "dog": "curl_up", "pig": "curl",
