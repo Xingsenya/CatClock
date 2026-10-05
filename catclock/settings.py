@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 from . import data as D
 from .util import CONFIG_DIR, CONFIG_PATH, autostart_enabled
 from . import stats
+from . import quotes as Q
 
 
 def _row(*widgets):
@@ -279,6 +280,26 @@ class SettingsDialog(QDialog):
             h3.addWidget(b)
         h3.addStretch(1)
         v.addWidget(g3)
+
+        g4 = QGroupBox("语录（可编辑 JSON，支持天气/周五/久坐文案）")
+        v4 = QVBoxLayout(g4)
+        self.lab_quotes = QLabel("语录文件：" + Q.QUOTE_PATH)
+        self.lab_quotes.setWordWrap(True)
+        self.lab_quotes.setStyleSheet("color:#9A8B80; font: 9pt 'Microsoft YaHei';")
+        v4.addWidget(self.lab_quotes)
+        h4 = QHBoxLayout()
+        b_open = QPushButton("打开语录文件")
+        b_rel = QPushButton("重新加载")
+        b_def = QPushButton("恢复默认")
+        b_open.clicked.connect(self._open_quotes)
+        b_rel.clicked.connect(self._reload_quotes)
+        b_def.clicked.connect(self._reset_quotes)
+        for b in (b_open, b_rel, b_def):
+            h4.addWidget(b)
+        h4.addStretch(1)
+        v4.addLayout(h4)
+        v.addWidget(g4)
+
         v.addStretch(1)
         return w
 
@@ -300,6 +321,21 @@ class SettingsDialog(QDialog):
     def _reset_pos(self):
         self._want_reset_pos = True
         QMessageBox.information(self, "已安排", "点「确定」后窗口会回到屏幕右下角。")
+
+    def _open_quotes(self):
+        Q.ensure_default_file()
+        self._open_path(Q.QUOTE_PATH)
+
+    def _reload_quotes(self):
+        QMessageBox.information(self, "已重新加载", "语录会在下一条轮换时读取最新文件。")
+
+    def _reset_quotes(self):
+        btn = QMessageBox.question(self, "恢复默认语录",
+                                   "确定把语录文件恢复为内置默认吗？")
+        if btn != QMessageBox.StandardButton.Yes:
+            return
+        Q.reset_quotes_file()
+        QMessageBox.information(self, "已恢复", "语录文件已重置为内置默认。")
 
     def _show_stats(self):
         QMessageBox.information(self, "工作统计", stats.report_text())

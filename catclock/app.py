@@ -25,6 +25,7 @@ from . import weather as W
 from . import ui as U
 from . import update as UPD
 from . import stats
+from . import quotes as Q
 from . import settings as S
 from . import __version__
 from .util import (
@@ -34,8 +35,7 @@ from .util import (
 )
 from .draw import draw_cat, heart_path, draw_weather_icon, make_icon
 from .data import (
-    CHARACTERS, STYLES, QUOTES, QUOTES_FRIDAY, WEATHER_QUOTES, HYDRATE_MSGS,
-    WMO_TEXT, wmo_kind, PROP_BY_WEATHER,
+    CHARACTERS, STYLES, WMO_TEXT, wmo_kind, PROP_BY_WEATHER,
 )
 from .weather import WeatherFetcher
 from .ui import CatInputDialog, RestDaysDialog
@@ -199,10 +199,9 @@ class CatClock(QWidget):
             return cs, ccx, H / 2 + dy
         shape = self.char_colors().get("shape", "cat")
         top = _TOP_EXT.get(shape, 0.64)
-        # 帽子占的头顶空间（auto = 物种默认帽）
-        hat = str(self.cfg.get("hat", "auto"))
-        hat_style = _HAT.get(shape, "none") if hat == "auto" else hat
-        top = max(top, _HAT_EXT.get(hat_style, 0.0))
+        # 帽子占的头顶空间（auto = 物种默认帽 / 节日自动帽）
+        hat = self._effective_hat()
+        top = max(top, D._HAT_EXT.get(hat, 0.0))
         if prop == "__auto__":
             prop = self._prop_now()
         if prop == "umbrella":
@@ -895,7 +894,7 @@ class CatClock(QWidget):
                     and self.t0 - self.last_hydrate >= 3600:
                 self.last_hydrate = self.t0
                 self.hydrate_t = 0.0
-                self.notify("该活动一下啦", random.choice(HYDRATE_MSGS), False)
+                self.notify("该活动一下啦", Q.hydrate_msg(self.quote_i), False)
         else:
             self.last_hydrate = self.t0
         self._prev_secs = secs
@@ -922,24 +921,25 @@ class CatClock(QWidget):
         self.bubble_t = 0.0
 
     def _quote(self):
-        """当前时段的打工人语录（周五专属池 + 天气联动穿插）"""
+        """挑一条当前时段/天气/周五的自定义语录。"""
         now = datetime.now()
-        h = now.hour + now.minute / 60.0
-        if now.weekday() == 4:                       # 周五专属
-            for (a, b), pool in QUOTES_FRIDAY.items():
-                if a <= h < b:
-                    return pool[self.quote_i % len(pool)]
         w = self.weather
-        if w and w.get("kind") in WEATHER_QUOTES and self.quote_i % 3 == 0:
-            pool = WEATHER_QUOTES[w["kind"]]
-            msg = pool[(self.quote_i // 3) % len(pool)]
-            if w.get("temp", 0) >= 34:
-                msg += "，多喝水"
-            return msg
-        for a, b, pool in QUOTES:
-            if a <= h < b:
-                return pool[self.quote_i % len(pool)]
-        return None
+        kind = w.get("kind") if w else None
+        msg = Q.get_quote("work", now.hour + now.minute / 60.0,
+                          now.weekday() == 4, kind, self.quote_i)
+        if msg and kind == "sun" and w.get("temp", 0) >= 34:
+            msg += "，多喝水"
+        return msg
+
+    def _effective_hat(self):
+        """当前实际佩戴的帽子：用户选择 > 节日自动 > 角色默认。"""
+        hat = str(self.cfg.get("hat", "auto"))
+        if hat != "auto":
+            return hat
+        fest = Q.festive_hat_now()
+        if fest:
+            return fest
+        return D._HAT.get(self.char_colors().get("shape", "cat"), "none")
 
     def _bubble_active(self):
         """是否有气泡在展示（猫需要下移让位）"""
@@ -1116,7 +1116,7 @@ class CatClock(QWidget):
                  scared=thunder or too_hot, look=look, mood=mood,
                  tail_phase=tail_phase, t=self.t0, dim25=dim25,
                  pet_k=self.meow_t if self.meow_t < 1.0 else None, ear_tw=ear_tw,
-                 body=body, prop=prop, hat=str(self.cfg.get("hat", "auto")))
+                 body=body, prop=prop, hat=self._effective_hat())
 
         # 天气小图标（右上角）
         if self.weather and not mini:

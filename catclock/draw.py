@@ -253,7 +253,7 @@ def _draw_arm(p, sx, sy, ex, ey, bx, by, s, colors, outline):
 
 
 def _draw_hat(p, cx, cy, s, colors, outline, style, head_top, hw=0.88, t=0.0):
-    """头顶帽子。style: cap / beanie / beret / straw / party / crown。"""
+    """头顶帽子。style: cap / beanie / beret / straw / party / crown / santa / cny。"""
     if style == "none":
         return
     top = head_top
@@ -362,6 +362,49 @@ def _draw_hat(p, cx, cy, s, colors, outline, style, head_top, hw=0.88, t=0.0):
         p.drawEllipse(QRectF(cx - 0.045 * s, top + 0.015 * s, 0.09 * s, 0.09 * s))
         p.setBrush(QColor(255, 255, 255, 90))
         p.drawEllipse(QRectF(cx - 0.26 * s, top - 0.01 * s, 0.07 * s, 0.05 * s))
+    elif style == "santa":
+        # 圣诞帽：红圆顶 + 白翻边 + 大白绒球
+        red = "#C0392B"
+        white = "#F2F0EC"
+        p.setPen(outline)
+        dome = QPainterPath()
+        dome.moveTo(cx - 0.38 * s, top + 0.12 * s)
+        dome.cubicTo(cx - 0.40 * s, top - 0.18 * s,
+                     cx + 0.05 * s, top - 0.26 * s,
+                     cx + 0.18 * s, top - 0.36 * s)
+        dome.cubicTo(cx + 0.22 * s, top - 0.16 * s,
+                     cx + 0.40 * s, top - 0.06 * s,
+                     cx + 0.38 * s, top + 0.12 * s)
+        dome.closeSubpath()
+        p.setBrush(QColor(red))
+        p.drawPath(dome)
+        p.setBrush(QColor(white))
+        p.drawRoundedRect(QRectF(cx - 0.39 * s, top + 0.06 * s,
+                                 0.78 * s, 0.14 * s), 0.06 * s, 0.06 * s)
+        p.drawEllipse(QRectF(cx + 0.10 * s, top - 0.46 * s, 0.16 * s, 0.14 * s))
+    elif style == "cny":
+        # 春节福帽：红圆顶 + 金边 + 金色福字 + 顶球
+        red = "#C62D2D"
+        gold = "#E8B923"
+        p.setPen(outline)
+        p.setBrush(QColor(red))
+        dome = QPainterPath()
+        dome.moveTo(cx - 0.40 * s, top + 0.12 * s)
+        dome.cubicTo(cx - 0.40 * s, top - 0.10 * s,
+                     cx + 0.40 * s, top - 0.10 * s,
+                     cx + 0.40 * s, top + 0.12 * s)
+        dome.closeSubpath()
+        p.drawPath(dome)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor(gold), max(1.5, s * 0.02)))
+        p.drawEllipse(QRectF(cx - 0.38 * s, top + 0.05 * s, 0.76 * s, 0.12 * s))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(gold))
+        p.drawEllipse(QRectF(cx - 0.085 * s, top - 0.22 * s, 0.17 * s, 0.15 * s))
+        p.setFont(QFont("Microsoft YaHei", int(s * 0.13), QFont.Weight.Bold))
+        p.setPen(QPen(QColor(gold), max(1.0, s * 0.012)))
+        p.drawText(QRectF(cx - 0.22 * s, top - 0.03 * s, 0.44 * s, 0.20 * s),
+                   Qt.AlignmentFlag.AlignCenter, "福")
 
 
 
