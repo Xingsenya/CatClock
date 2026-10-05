@@ -19,3 +19,9 @@ ps_out.txt
 ps_err.txt
 dist_dbg/
 build_dbg/
+
+# 备份与临时日志
+*.bak
+*.bak.*
+smoke_*.txt
+clean_log.txt
