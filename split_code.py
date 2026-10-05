@@ -25,7 +25,8 @@ try:
 except Exception:
     winreg = None
 
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtCore import QRectF
+from PyQt6.QtGui import QColor, QFont, QPainterPath
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
 from . import data as _data
