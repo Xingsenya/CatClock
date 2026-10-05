@@ -111,6 +111,10 @@ class CatClock(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(100)
+        self.step = 0.1            # 当前帧间隔（秒），自适应帧率时会变
+        self.lowfps = False        # 静止降频模式（冻结尾巴/眨眼，保证画面不跳）
+        self._bg_key = None        # 背景面板缓存 key
+        self._bg_pm = None         # 背景面板缓存 QPixmap
 
         # 版本更新：启动 6s 后静默检查一次
         self._update_url = None
@@ -128,6 +132,7 @@ class CatClock(QWidget):
         s = float(self.cfg.get("scale", 1.0))
         h = self.H_MINI if self.cfg.get("mini") else self.H_FULL
         self.setFixedSize(int(self.W * s), int(int(h) * s))
+        self._bg_invalidate()
         self._clamp()
         self.update()
 
@@ -238,6 +243,7 @@ class CatClock(QWidget):
         self.cfg["style"] = name
         save_cfg(self.cfg)
         self.apply_app_style()
+        self._bg_invalidate()
         self.update()
 
     # ---------- 位置（支持多屏） ----------
@@ -766,10 +772,12 @@ class CatClock(QWidget):
 
     def enterEvent(self, e):
         self.hover = True
+        self._bg_invalidate()
         self.update()
 
     def leaveEvent(self, e):
         self.hover = False
+        self._bg_invalidate()
         self.update()
 
     def closeEvent(self, e):
@@ -779,25 +787,29 @@ class CatClock(QWidget):
 
     # ---------- 计时 ----------
     def _tick(self):
-        self.t0 += 0.1
-        self.blink_t += 0.1
-        self.quote_t += 0.1
+        dt = getattr(self, "step", 0.1)      # 自适应帧率下的真实帧间隔
+        self.t0 += dt
+        self.blink_t += dt
+        self.quote_t += dt
         if self.blink_t > self.blink_until:
             self.blink_t = 0.0
             self.blink_until = 2.2 + (os.getpid() % 7) * 0.4
         if self.meow_t < 1.0:
-            self.meow_t += 0.08
+            self.meow_t += 0.8 * dt
         if self.quote_t >= 25.0:        # 每 25 秒换下一条语录
             self.quote_t = 0.0
             self.quote_i += 1
         if self.hydrate_t < 5.0:
-            self.hydrate_t += 0.1
+            self.hydrate_t += dt
         if self.hourly_t < 3.0:
-            self.hourly_t += 0.1
+            self.hourly_t += dt
         if self.meow_bubble_t < 2.5:
-            self.meow_bubble_t += 0.1
+            self.meow_bubble_t += dt
         if self.bubble_t < 3.5:
-            self.bubble_t += 0.1
+            self.bubble_t += dt
+        # 悬停猫头计时会衰减：鼠标不动约 0.8s 后视为静止，允许降频
+        if self.hover_cat_t > 0.0:
+            self.hover_cat_t = max(0.0, self.hover_cat_t - dt)
         # 整点报时：7-22 点且非休息日（深夜和休息不打扰）
         now = datetime.now()
         phase, start, end, secs, pct = self._status()
@@ -887,6 +899,21 @@ class CatClock(QWidget):
         else:
             self.last_hydrate = self.t0
         self._prev_secs = secs
+
+        # ---- 自适应帧率：静止时降频，有动画时立刻回到 10fps ----
+        try:
+            anim = self._anim_active()
+            want = self._want_interval(phase, anim)
+            was_low = self.lowfps
+            self.lowfps = want >= 250 and not anim
+            if want != getattr(self, "_timer_ms", 100):
+                self._timer_ms = want
+                self.step = want / 1000.0
+                self.timer.setInterval(want)
+            elif was_low != self.lowfps:
+                self.update()          # 刚进入/退出静止态，补一帧
+        except Exception:
+            pass
         self.update()
 
     def _say(self, text, dur=3.5):
@@ -966,10 +993,77 @@ class CatClock(QWidget):
         pct = (now - start).total_seconds() / (end - start).total_seconds()
         return "work", start, end, int((end - now).total_seconds()) + 1, pct
 
+    # ---------- 绘制缓存 ----------
+    def _bg_invalidate(self):
+        """面板外观变了就丢弃缓存（配色 / 悬停 / 尺寸 / 迷你模式）"""
+        self._bg_key = None
+        self._bg_pm = None
+
+    def _bg_pixmap(self):
+        """带阴影的圆角面板：内容只在外观变化时重绘，平时直接贴图。"""
+        key = (self.cfg.get("style"), bool(self.hover), bool(self.cfg.get("mini")),
+               round(float(self.cfg.get("scale", 1.0)), 2), self.width(), self.height())
+        if self._bg_key == key and self._bg_pm is not None:
+            return self._bg_pm
+        st = self.style()
+        s = float(self.cfg.get("scale", 1.0))
+        mini = bool(self.cfg.get("mini", False))
+        W = self.W
+        H = self.H_MINI if mini else self.H_FULL
+        pad = 5
+        dpr = self.devicePixelRatioF() or 1.0
+        pm = QPixmap(int(self.width() * dpr), int(self.height() * dpr))
+        pm.setDevicePixelRatio(dpr)
+        pm.fill(Qt.GlobalColor.transparent)
+        q = QPainter(pm)
+        q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        q.scale(s, s)
+        # 柔和阴影
+        for i in range(6):
+            k = 5 - i
+            inset = pad + k * 1.2 - 1.2
+            q.setPen(Qt.PenStyle.NoPen)
+            q.setBrush(QColor(st["shadow"][0], st["shadow"][1], st["shadow"][2], 8 + k * 4))
+            q.drawPath(rr(inset, inset + 1.6, W - 2 * inset, H - 2 * inset, 25))
+        # 面板
+        g = QLinearGradient(0, pad, 0, H - pad)
+        g.setColorAt(0, QColor(*st["panel0"]))
+        g.setColorAt(1, QColor(*st["panel1"]))
+        q.setBrush(g)
+        ba = 235 if self.hover else 190
+        bcol = st["border_h"] if self.hover else st["border"]
+        q.setPen(QPen(QColor(bcol[0], bcol[1], bcol[2], ba), 1.3))
+        q.drawPath(rr(pad, pad, W - 2 * pad, H - 2 * pad, 24))
+        q.end()
+        self._bg_key = key
+        self._bg_pm = pm
+        return pm
+
+    # ---------- 自适应帧率 ----------
+    def _anim_active(self):
+        """当前是否有正在播放的动画（决定要不要高频刷新）"""
+        return (self.meow_t < 1.0 or self.idle is not None
+                or self.hydrate_t < 5.0 or self.hourly_t < 3.0
+                or self.meow_bubble_t < 2.5 or self.bubble_t < 3.5
+                or self.hover or 0.0 < getattr(self, "hover_cat_t", 0.0) < 0.8
+                or self.ear_tw is not None)
+
+    def _want_interval(self, phase, anim):
+        """返回期望的定时器间隔（毫秒）"""
+        show_sec = bool(self.cfg.get("show_sec", True))
+        if anim:
+            return 100
+        if phase == "rest":
+            return 1000 if not show_sec else 500
+        if show_sec:
+            return 100
+        return 250                      # 只剩冒号闪烁，250ms 足够
+
     # ---------- 绘制 ----------
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.drawPixmap(0, 0, self._bg_pixmap())     # 面板走缓存，不再每帧重画阴影
         s = float(self.cfg.get("scale", 1.0))
         p.scale(s, s)                       # 全局等比缩放，后续全部用逻辑坐标
         W = self.W
@@ -977,24 +1071,6 @@ class CatClock(QWidget):
         H = self.H_MINI if mini else self.H_FULL
         pad = 5
         st = self.style()
-
-        # 柔和阴影
-        for i in range(6):
-            k = 5 - i
-            inset = pad + k * 1.2 - 1.2
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(st["shadow"][0], st["shadow"][1], st["shadow"][2], 8 + k * 4))
-            p.drawPath(rr(inset, inset + 1.6, W - 2 * inset, H - 2 * inset, 25))
-
-        # 面板
-        g = QLinearGradient(0, pad, 0, H - pad)
-        g.setColorAt(0, QColor(*st["panel0"]))
-        g.setColorAt(1, QColor(*st["panel1"]))
-        p.setBrush(g)
-        ba = 235 if self.hover else 190
-        bcol = st["border_h"] if self.hover else st["border"]
-        p.setPen(QPen(QColor(bcol[0], bcol[1], bcol[2], ba), 1.3))
-        p.drawPath(rr(pad, pad, W - 2 * pad, H - 2 * pad, 24))
 
         phase, start, end, secs, pct = self._status()
         excited = phase == "work" and secs <= 1800 and not self.afk
@@ -1022,8 +1098,11 @@ class CatClock(QWidget):
         look = ((cur.x() - (self.x() + ccx * s_f)) / (160.0 * s_f),
                 (cur.y() - (self.y() + ccy * s_f)) / (160.0 * s_f))
         mood = None if mini else (self.idle[0] if self.idle else None)
+        # 静止降频：冻结尾摆与眨眼，避免低帧率下画面一跳一跳
+        still = self.lowfps and not self._anim_active()
         # 摇尾：平时慢摆，摸猫时快摆
-        tail_phase = (self.t0 * (7.0 if meowing else 1.8)) + (2.0 if meowing else 0.0)
+        tail_phase = 0.6 if still else \
+            (self.t0 * (7.0 if meowing else 1.8)) + (2.0 if meowing else 0.0)
         dim25 = bool(self.cfg.get("dim25", False))
         ear_tw = None
         if dim25 and self.ear_tw:
@@ -1032,7 +1111,8 @@ class CatClock(QWidget):
         body = bool(self.cfg.get("body", True))
         prop = self._prop_now()
         draw_cat(p, ccx + shake, ccy, cs, self.char_colors(),
-                 blink=self.blink_t < 0.18 or meowing, excited=excited, sleepy=sleepy,
+                 blink=(self.blink_t < 0.18 or meowing) and not still,
+                 excited=excited, sleepy=sleepy,
                  scared=thunder or too_hot, look=look, mood=mood,
                  tail_phase=tail_phase, t=self.t0, dim25=dim25,
                  pet_k=self.meow_t if self.meow_t < 1.0 else None, ear_tw=ear_tw,
