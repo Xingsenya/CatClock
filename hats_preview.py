@@ -8,7 +8,8 @@ from catclock.data import CHARACTERS
 from catclock.draw import draw_cat
 
 HATS = [("auto", "auto"), ("none", "none"), ("cap", "cap"), ("beanie", "beanie"),
-        ("beret", "beret"), ("straw", "straw"), ("party", "party"), ("crown", "crown")]
+        ("beret", "beret"), ("straw", "straw"), ("party", "party"), ("crown", "crown"),
+        ("santa", "santa"), ("cny", "cny")]
 
 app = QApplication(sys.argv)
 W, H = 200 * len(HATS), 250
