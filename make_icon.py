@@ -2,7 +2,7 @@
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QPixmap
 from PIL import Image
-from cat_clock import make_icon
+from catclock.draw import make_icon
 
 app = QApplication([])
 icon = make_icon(128)

@@ -6,7 +6,8 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont
 from PyQt6.QtCore import Qt, QRectF
 from PIL import Image
-from cat_clock import CHARACTERS, draw_cat, _TOP_EXT
+from catclock.data import CHARACTERS, _TOP_EXT
+from catclock.draw import draw_cat
 
 app = QApplication([])
 

@@ -5,7 +5,9 @@ sys.path.insert(0, r"D:\CatClock")
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QLinearGradient, QPen
 from PyQt6.QtCore import Qt, QRectF
-from cat_clock import CHARACTERS, STYLES, draw_cat, rr, _TOP_EXT
+from catclock.data import CHARACTERS, STYLES, _TOP_EXT
+from catclock.draw import draw_cat
+from catclock.util import rr
 
 app = QApplication([])
 CELL_W, CELL_H = 300, 140

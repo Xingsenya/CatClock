@@ -4,7 +4,8 @@ sys.path.insert(0, "D:/CatClock")
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QPainter, QColor, QPixmap, QFont
 from PyQt6.QtCore import QRectF
-from cat_clock import draw_cat, CHARACTERS
+from catclock.data import CHARACTERS
+from catclock.draw import draw_cat
 
 HATS = [("auto", "auto"), ("none", "none"), ("cap", "cap"), ("beanie", "beanie"),
         ("beret", "beret"), ("straw", "straw"), ("party", "party"), ("crown", "crown")]
