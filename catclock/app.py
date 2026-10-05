@@ -58,6 +58,9 @@ class CatClock(QWidget):
         self.weather = None        # dict(city, code, kind, temp, text)
         self.idle = None           # 待机小动作 (name, start_t)
         self.idle_next = 15.0      # 距下次小动作的秒数
+        self.action = None         # 当前待机动作（stretch/yawn/wave/tail_wag）
+        self.action_start = 0.0
+        self.action_dur = 3.0
         self.quote_i = 0
         self.quote_t = 0.0         # 语录轮播计时
         self.hydrate_t = 99.0      # 久坐提醒气泡（>=5 不显示）
@@ -844,10 +847,13 @@ class CatClock(QWidget):
             if 13.0 <= hour < 14.0:
                 name = "yawn" if random.random() < 0.7 else "stretch"
             else:
-                name = random.choice(["stretch", "yawn", "yawn"])
+                name = random.choice(["stretch", "yawn", "wave", "tail_wag"])
             self.idle = (name, self.t0)
+            self.action = name
+            self.action_start = self.t0
         if self.idle and self.t0 - self.idle[1] > 3.0:
             self.idle = None
+            self.action = None
             self.idle_next = self.t0 + random.uniform(20, 45)
         # 2.5D：随机耳抖（每 25-60 秒一次，每次 0.6 秒）
         if self.ear_tw and self.t0 - self.ear_tw[1] > 0.6:
@@ -940,6 +946,13 @@ class CatClock(QWidget):
         if fest:
             return fest
         return D._HAT.get(self.char_colors().get("shape", "cat"), "none")
+
+    def _effective_acc(self):
+        """当前实际佩戴的配饰：用户选择 > none。"""
+        acc = str(self.cfg.get("acc", "auto"))
+        if acc != "auto":
+            return acc
+        return "none"
 
     def _bubble_active(self):
         """是否有气泡在展示（猫需要下移让位）"""
@@ -1098,6 +1111,10 @@ class CatClock(QWidget):
         look = ((cur.x() - (self.x() + ccx * s_f)) / (160.0 * s_f),
                 (cur.y() - (self.y() + ccy * s_f)) / (160.0 * s_f))
         mood = None if mini else (self.idle[0] if self.idle else None)
+        action = self.action if not mini else None
+        action_k = 0.0
+        if action and self.action_dur:
+            action_k = max(0.0, min(1.0, (self.t0 - self.action_start) / self.action_dur))
         # 静止降频：冻结尾摆与眨眼，避免低帧率下画面一跳一跳
         still = self.lowfps and not self._anim_active()
         # 摇尾：平时慢摆，摸猫时快摆
@@ -1113,10 +1130,10 @@ class CatClock(QWidget):
         draw_cat(p, ccx + shake, ccy, cs, self.char_colors(),
                  blink=(self.blink_t < 0.18 or meowing) and not still,
                  excited=excited, sleepy=sleepy,
-                 scared=thunder or too_hot, look=look, mood=mood,
-                 tail_phase=tail_phase, t=self.t0, dim25=dim25,
+                 scared=thunder or too_hot, look=look, action=action,
+                 action_k=action_k, tail_phase=tail_phase, t=self.t0, dim25=dim25,
                  pet_k=self.meow_t if self.meow_t < 1.0 else None, ear_tw=ear_tw,
-                 body=body, prop=prop, hat=self._effective_hat())
+                 body=body, prop=prop, hat=self._effective_hat(), acc=self._effective_acc())
 
         # 天气小图标（右上角）
         if self.weather and not mini:

@@ -93,6 +93,13 @@ class SettingsDialog(QDialog):
         self.c_hat.setCurrentIndex(max(0, idx))
         f.addRow("帽子：", self.c_hat)
 
+        self.c_acc = QComboBox()
+        for key, name in D.ACCS:
+            self.c_acc.addItem(name, key)
+        idx = self.c_acc.findData(str(self.cfg.get("acc", "auto")))
+        self.c_acc.setCurrentIndex(max(0, idx))
+        f.addRow("配饰：", self.c_acc)
+
         self.c_size = QComboBox()
         for pct in D.SIZES:
             self.c_size.addItem("%d%%" % pct, pct / 100.0)
@@ -384,6 +391,7 @@ class SettingsDialog(QDialog):
             "char": self.c_char.currentText(),
             "style": self.c_style.currentText(),
             "hat": self.c_hat.currentData(),
+            "acc": self.c_acc.currentData(),
             "scale": float(self.c_size.currentData()),
             "body": self.k_body.isChecked(),
             "dim25": self.k_25d.isChecked(),

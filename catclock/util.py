@@ -46,7 +46,8 @@ DEFAULTS = {
     "dim25": False,       # 2.5D 立体效果（投影/倾斜/挤压/耳抖）
     "body": True,         # 半身模式（圆身体 + 前爪 + 状态道具）
     "scale": 1.0,         # 整体缩放（0.6-1.6，滚轮调节）
-    "hat": "auto",        # 帽子：auto/none/cap/beanie/beret/straw/party/crown
+    "hat": "auto",        # 帽子：auto/none/cap/beanie/beret/straw/party/crown/santa/cny
+    "acc": "auto",        # 配饰：auto/none/glasses/sunglasses/headphones/bowtie
     "check_update": True, # 启动时静默检查 GitHub Release
     "count_over": True,   # 工作统计是否把下班后的时间计入加班
 }

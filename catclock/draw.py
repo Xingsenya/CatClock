@@ -15,6 +15,20 @@ from .data import (_HEAD, _EYE, _EYE_DEFAULT, _TAIL, _HAND, _HAT, _HAT_EXT,
 
 CHARACTERS = D.CHARACTERS
 STYLES = D.STYLES
+
+
+def _ease(t):
+    """smoothstep：0..1 进入和退出都更柔和。"""
+    t = max(0.0, min(1.0, t))
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _ease_out(t):
+    """淡入（快起慢收）。"""
+    t = max(0.0, min(1.0, t))
+    return 1.0 - (1.0 - t) * (1.0 - t)
+
+
 def _draw_paw(p, x, y, s, colors, outline, r):
     """标准掌心朝上的猫爪（局部标准方向：肉垫在 y- 侧）。由 _draw_hand 统一旋转。"""
     p.setPen(outline)
@@ -408,6 +422,63 @@ def _draw_hat(p, cx, cy, s, colors, outline, style, head_top, hw=0.88, t=0.0):
 
 
 
+def _draw_acc(p, cx, cy, s, colors, outline, style, head_top):
+    """配饰：眼镜 / 墨镜 / 耳机 / 领结，在帽子之后、胡须之前绘制。"""
+    if not style or style == "auto" or style == "none":
+        return
+    line_c = colors.get("line", "#4A3B33")
+    if style == "glasses":
+        r = s * 0.18
+        p.setPen(QPen(QColor(line_c), max(1.0, s * 0.014)))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        for sign in (-1, 1):
+            p.drawEllipse(QRectF(cx + sign * 0.175 * s - r,
+                                 cy - 0.02 * s - r * 0.85,
+                                 r * 2, r * 1.7))
+        p.drawLine(QPointF(cx - 0.05 * s, cy - 0.05 * s),
+                   QPointF(cx + 0.05 * s, cy - 0.05 * s))
+    elif style == "sunglasses":
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#2A2520"))
+        for sign in (-1, 1):
+            p.drawEllipse(QRectF(cx + sign * 0.17 * s - s * 0.15,
+                                 cy - 0.03 * s - s * 0.11,
+                                 s * 0.30, s * 0.22))
+        p.drawRect(QRectF(cx - s * 0.05, cy - s * 0.08, s * 0.10, s * 0.04))
+    elif style == "headphones":
+        cup = "#3A3A3A"
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(cup))
+        for sign in (-1, 1):
+            p.drawEllipse(QRectF(cx + sign * 0.44 * s - s * 0.09,
+                                 cy - 0.05 * s - s * 0.14,
+                                 s * 0.18, s * 0.28))
+        p.setPen(QPen(QColor(cup), max(1.5, s * 0.02)))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawArc(QRectF(cx - 0.44 * s, cy - 0.42 * s, 0.88 * s, 0.50 * s),
+                  0, 180 * 16)
+    elif style == "bowtie":
+        p.setPen(outline)
+        p.setBrush(QColor("#E85A6E"))
+        bx, by = cx, cy + 0.32 * s
+        w, h = s * 0.18, s * 0.10
+        tri1 = QPainterPath()
+        tri1.moveTo(bx, by)
+        tri1.lineTo(bx - w, by - h)
+        tri1.lineTo(bx - w, by + h)
+        tri1.closeSubpath()
+        p.drawPath(tri1)
+        tri2 = QPainterPath()
+        tri2.moveTo(bx, by)
+        tri2.lineTo(bx + w, by - h)
+        tri2.lineTo(bx + w, by + h)
+        tri2.closeSubpath()
+        p.drawPath(tri2)
+        p.setBrush(QColor("#C43E54"))
+        p.drawEllipse(QRectF(bx - s * 0.03, by - s * 0.03, s * 0.06, s * 0.06))
+
+
+
 def _draw_prop(p, prop, cx, cy, s, colors, side=None, wx=None, wy=None):
     """画半身状态道具。双手道具用 cx,cy；单手道具用 wx,wy 并参考 side('L'/'R')。"""
     line_c = colors.get("line", "#4A3B33")
@@ -528,20 +599,27 @@ def _draw_prop(p, prop, cx, cy, s, colors, side=None, wx=None, wy=None):
 
 
 def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False,
-             scared=False, look=(0.0, 0.0), mood=None, tail_phase=None, t=0.0,
-             dim25=False, pet_k=None, ear_tw=None, body=False, prop=None, hat="auto"):
-    """画一只可爱的猫脑袋。s 为整体直径；look 为瞳孔偏移(-1..1)；mood 待机动作；tail_phase 摇尾
-    dim25=2.5D 模式（投影/倾斜/挤压）；pet_k 摸猫进度 0..1；ear_tw=(方向±1, 进度0..1) 耳抖
-    body=半身模式（圆身体+前爪）；prop=手上的道具（coffee/umbrella/fan/scarf/coin/bag）
-    hat=帽子：auto 按物种默认 / none 不戴 / cap/beanie/beret/straw/party/crown"""
+             scared=False, look=(0.0, 0.0), mood=None, action=None, action_k=0.0,
+             tail_phase=None, t=0.0, dim25=False, pet_k=None, ear_tw=None,
+             body=False, prop=None, hat="auto", acc="auto"):
+    """画一只可爱的猫脑袋。s 为整体直径；look 为瞳孔偏移(-1..1)；mood 已弃用，请用 action
+    action: 待机动作（stretch/yawn/wave/tail_wag），action_k 为 0..1 进度
+    tail_phase 摇尾；dim25=2.5D 模式；pet_k 摸猫进度 0..1；ear_tw=(方向±1, 进度0..1) 耳抖
+    body=半身模式（圆身体+前爪）；prop=手上的道具；hat=帽子；acc=配饰"""
     if colors is None:
         colors = CHARACTERS["橘猫"]
     p.save()
     p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     cy += math.sin(t) * s * 0.018          # 呼吸浮动
-    if mood == "stretch":                  # 伸懒腰：整体放大一点 + 眯眼
-        s *= 1.05
+    # 兼容旧 mood 参数，实际统一走 action
+    if action is None and mood is not None:
+        action = mood
+        action_k = 1.0
+    if action == "stretch":                  # 伸懒腰：整体放大一点 + 眯眼
+        s *= 1.0 + 0.05 * _ease(action_k)
         blink = True
+    if action == "tail_wag" and tail_phase is not None:
+        tail_phase = _ease(action_k) * 8.0 * math.pi
 
     lw = max(1.0, s * 0.016)
     dark = _q_luma(colors["fur"]) < 0.42      # 深毛色：描边向浅色靠拢，避免糊成一团
@@ -1160,6 +1238,10 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     _draw_hat(p, cx, cy, s, colors, outline, hat_style,
               head_top, hw, t)
 
+    # ---- 配饰（帽子之后、胡须之前） ----
+    acc_style = "none" if acc in (None, "auto") else acc
+    _draw_acc(p, cx, cy, s, colors, outline, acc_style, head_top)
+
     # ---- 胡须（猫/鼠/兔/虎/龙；深毛色用浅须，浅毛色用经典橘须） ----
     if shape in ("cat", "rat", "rabbit", "tiger", "dragon"):
         hp = QPen(QColor("#CFC9DC") if dark else QColor("#E0AC76"), max(1.0, s * 0.012))
@@ -1244,13 +1326,16 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     # ---- 鼻子 & 嘴（按物种分形状；打哈欠统一 O 形嘴） ----
     mouth_pen = QPen(line_c, max(1.3, s * 0.022), Qt.PenStyle.SolidLine,
                      Qt.PenCapStyle.RoundCap)
-    if mood == "yawn":
+    if action == "yawn":
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor("#7A4A3A"))
-        p.drawEllipse(QRectF(cx - s * 0.040, cy + 0.125 * s, s * 0.080, s * 0.095))
-        p.setPen(Qt.PenStyle.NoPen)      # 打哈欠的泪珠
-        p.setBrush(QColor("#8EC9E8"))
-        p.drawEllipse(QRectF(cx + 0.20 * s, cy - 0.10 * s, s * 0.045, s * 0.06))
+        k = _ease(action_k)
+        p.drawEllipse(QRectF(cx - s * 0.040 * k, cy + 0.125 * s,
+                             s * 0.080 * k, s * 0.095 * k))
+        if k > 0.3:                     # 泪珠在哈欠后半段出现
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor("#8EC9E8"))
+            p.drawEllipse(QRectF(cx + 0.20 * s, cy - 0.10 * s, s * 0.045, s * 0.06))
     elif shape == "pig":                 # 猪：更大圆鼻 + 鼻孔
         p.setPen(outline)
         p.setBrush(QColor(colors["nose"]))
@@ -1398,6 +1483,15 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
              cx - (sx + 0.24 * s), cy + 0.58 * s, 1.0, 0.0)
         R = (cx + sx, sy0, cx + (sx + 0.16 * s), cy + 0.78 * s - sway,
              cx + (sx + 0.24 * s), cy + 0.58 * s, -1.0, 0.0)
+        if action == "wave" and body:               # 挥手：右手抬起左右摆动
+            k = _ease(action_k)
+            wave = math.sin(k * math.pi * 3.5) * 0.09 * s
+            R = (cx + sx, sy0,
+                 cx + (sx + 0.16 * s) + wave,
+                 cy + 0.78 * s - 0.45 * s * k - sway,
+                 cx + (sx + 0.24 * s) + wave * 1.2,
+                 cy + 0.58 * s - 0.40 * s * k,
+                 -1.0, 0.0)
         if prop == "coffee":                        # 双手捧杯到身前（掌心朝上）
             L = (cx - sx, sy0, cx - 0.24 * s, cy + 0.82 * s + sway,
                  cx - 0.50 * s, cy + 0.60 * s, 0.0, -1.0)
