@@ -23,6 +23,10 @@ from . import data as D
 from . import draw as G
 from . import weather as W
 from . import ui as U
+from . import update as UPD
+from . import stats
+from . import settings as S
+from . import __version__
 from .util import (
     APP_NAME, CONFIG_DIR, CONFIG_PATH, DEFAULTS, load_cfg, save_cfg, app_path,
     autostart_enabled, set_autostart, _raise_existing, acquire_single, rr,
@@ -93,6 +97,12 @@ class CatClock(QWidget):
         # 天气：启动 1.5s 后首拉，之后每 30 分钟刷新
         self.wx = WeatherFetcher(self)
         self.wx.got.connect(self._wx_got)
+        self.wx.failed.connect(self._wx_retry)
+        self.weather = None
+        try:                                  # 先用上次缓存，联网后再覆盖
+            self.weather = W.load_cache()
+        except Exception:
+            pass
         QTimer.singleShot(1500, self.refresh_weather)
         self.wx_timer = QTimer(self)
         self.wx_timer.timeout.connect(self.refresh_weather)
@@ -101,6 +111,10 @@ class CatClock(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(100)
+
+        # 版本更新：启动 6s 后静默检查一次
+        self._update_url = None
+        self.auto_check_update()
 
     # ---------- 窗口 ----------
     def set_window_flags(self):
@@ -250,6 +264,7 @@ class CatClock(QWidget):
         self.menu = QMenu(self)
 
         self.char_menu = QMenu("角色", self)
+        self.char_actions = {}
         grp = QActionGroup(self)
         for name in CHARACTERS:
             a = QAction(name, self, checkable=True)
@@ -257,8 +272,10 @@ class CatClock(QWidget):
             a.triggered.connect(lambda _, n=name: self.set_char(n))
             grp.addAction(a)
             self.char_menu.addAction(a)
+            self.char_actions[name] = a
 
         self.style_menu = QMenu("样式", self)
+        self.style_actions = {}
         grp2 = QActionGroup(self)
         for name in STYLES:
             a = QAction(name, self, checkable=True)
@@ -266,6 +283,7 @@ class CatClock(QWidget):
             a.triggered.connect(lambda _, n=name: self.set_style(n))
             grp2.addAction(a)
             self.style_menu.addAction(a)
+            self.style_actions[name] = a
 
         self.act_start = QAction("设置上班时间…", self)
         self.act_start.triggered.connect(lambda: self.set_time("start", "上班"))
@@ -295,27 +313,28 @@ class CatClock(QWidget):
 
         # 帽子子菜单
         self.hat_menu = QMenu("帽子", self)
+        self.hat_actions = {}
         grp_h = QActionGroup(self)
         cur_hat = str(self.cfg.get("hat", "auto"))
-        for key, name in (("auto", "自动（按角色）"), ("none", "不戴帽子"),
-                          ("cap", "棒球帽"), ("beanie", "毛线帽"),
-                          ("beret", "贝雷帽"), ("straw", "草帽"),
-                          ("party", "派对帽"), ("crown", "皇冠")):
+        for key, name in D.HATS:
             a = QAction(name, self, checkable=True)
             a.setChecked(cur_hat == key)
             a.triggered.connect(lambda _, v=key: self.set_hat(v))
             grp_h.addAction(a)
             self.hat_menu.addAction(a)
+            self.hat_actions[key] = a
 
         # 大小子菜单
         self.size_menu = QMenu("大小（也可在窗口上滚轮）", self)
+        self.size_actions = {}
         grp_s = QActionGroup(self)
-        for pct in (60, 80, 100, 120, 140, 160):
+        for pct in D.SIZES:
             a = QAction("%d%%" % pct, self, checkable=True)
             a.setChecked(abs(float(self.cfg.get("scale", 1.0)) - pct / 100.0) < 0.001)
             a.triggered.connect(lambda _, v=pct / 100.0: self.set_scale(v))
             grp_s.addAction(a)
             self.size_menu.addAction(a)
+            self.size_actions[pct] = a
         self.act_noff = QAction("下班时通知", self, checkable=True)
         self.act_noff.setChecked(bool(self.cfg.get("notify_off", True)))
         self.act_noff.triggered.connect(lambda on: self.toggle_cfg("notify_off", on))
@@ -337,39 +356,48 @@ class CatClock(QWidget):
         self.act_auto = QAction("开机自动启动", self, checkable=True)
         self.act_auto.setChecked(autostart_enabled())
         self.act_auto.triggered.connect(self.toggle_autostart)
+        self.act_settings = QAction("设置…", self)
+        self.act_settings.triggered.connect(self.open_settings)
+        self.act_stats = QAction("工作统计…", self)
+        self.act_stats.triggered.connect(self.show_stats)
         self.act_reset = QAction("回到默认位置", self)
         self.act_reset.triggered.connect(self.reset_pos)
+        self.act_update = QAction("检查更新…", self)
+        self.act_update.triggered.connect(self.check_update_manual)
+        self.act_about = QAction("关于 CatClock", self)
+        self.act_about.triggered.connect(self.show_about)
         self.act_quit = QAction("退出", self)
         self.act_quit.triggered.connect(self.quit)
 
+        # 菜单只留高频快捷项，完整设置走「设置…」分组窗口
+        self.menu.addAction(self.act_settings)
+        self.menu.addSeparator()
         self.menu.addMenu(self.char_menu)
         self.menu.addMenu(self.style_menu)
-        self.menu.addSeparator()
-        self.menu.addAction(self.act_start)
-        self.menu.addAction(self.act_end)
-        self.menu.addAction(self.act_rest)
-        self.menu.addAction(self.act_city)
-        self.menu.addAction(self.act_payday)
-        self.menu.addSeparator()
-        self.menu.addAction(self.act_noff)
-        self.menu.addAction(self.act_nwork)
-        self.menu.addAction(self.act_sound)
-        self.menu.addAction(self.act_hydrate)
-        self.menu.addAction(self.act_npre)
-        self.menu.addAction(self.act_afk)
-        self.menu.addAction(self.act_25d)
-        self.menu.addAction(self.act_body)
         self.menu.addMenu(self.hat_menu)
-        self.menu.addSeparator()
-        self.menu.addMenu(self.size_menu)
         self.menu.addSeparator()
         self.menu.addAction(self.act_mini)
         self.menu.addAction(self.act_sec)
         self.menu.addAction(self.act_top)
         self.menu.addAction(self.act_auto)
         self.menu.addSeparator()
-        self.menu.addAction(self.act_reset)
+        self.menu.addMenu(self.size_menu)
+        self.menu.addAction(self.act_stats)
+        self.menu.addSeparator()
+        self.menu.addAction(self.act_update)
+        self.menu.addAction(self.act_about)
+        self.menu.addSeparator()
         self.menu.addAction(self.act_quit)
+
+        # 需要在设置窗口改动后同步勾选态的动作
+        self._check_actions = [
+            (self.act_mini, "mini"), (self.act_sec, "show_sec"),
+            (self.act_top, "top"), (self.act_hydrate, "hydrate"),
+            (self.act_npre, "notify_pre"), (self.act_afk, "afk"),
+            (self.act_25d, "dim25"), (self.act_body, "body"),
+            (self.act_noff, "notify_off"), (self.act_nwork, "notify_work"),
+            (self.act_sound, "sound"),
+        ]
 
     def _build_tray(self):
         self.tray = QSystemTrayIcon(make_icon(64, self.cfg["char"]), self)
@@ -378,6 +406,7 @@ class CatClock(QWidget):
         tray_menu.addAction(self.char_menu.menuAction())
         tray_menu.addAction(self.style_menu.menuAction())
         tray_menu.addSeparator()
+        tray_menu.addAction(self.act_settings)
         tray_menu.addAction(self.act_mini)
         tray_menu.addAction(self.size_menu.menuAction())
         tray_menu.addAction(self.act_end)
@@ -438,17 +467,30 @@ class CatClock(QWidget):
         self.update()
 
     def refresh_weather(self):
+        """拉取天气；失败时按 2min → 10min 退避重试（最多 3 次）。"""
         city = self.cfg.get("city", "")
-        if city:
-            try:
-                self.wx.start(city)
-            except Exception:
-                pass
+        if not city:
+            return
+        try:
+            self.wx.start(city)
+        except Exception:
+            self._wx_retry()
+
+    def _wx_retry(self):
+        self._wx_fail_n = getattr(self, "_wx_fail_n", 0) + 1
+        if self._wx_fail_n > 3:
+            return
+        delay = 120000 if self._wx_fail_n < 3 else 600000
+        QTimer.singleShot(delay, self.refresh_weather)
 
     def _wx_got(self, w):
         self.weather = w
+        self._wx_fail_n = 0
         try:
-            self.tray.setToolTip("%s · %s %s %d°C" % (APP_NAME, w["city"], w["text"], w["temp"]))
+            tip = "%s · %s %s %d°C" % (APP_NAME, w["city"], w["text"], w["temp"])
+            if w.get("aqi_text"):
+                tip += " · %s" % w["aqi_text"]
+            self.tray.setToolTip(tip)
         except Exception:
             pass
         self.update()
@@ -519,6 +561,136 @@ class CatClock(QWidget):
         self.act_auto.setChecked(autostart_enabled())
         if on and not ok:
             QMessageBox.warning(self, "设置失败", "写入注册表失败，可能需要管理员权限")
+
+    def check_update_manual(self):
+        info = UPD.check_update()
+        if not info:
+            QMessageBox.information(self, "检查更新", "当前已是最新版本（v%s）" % __version__)
+            return
+        txt = "发现新版本 v%s\n\n%s\n\n是否打开下载页？" % (info["version"], info["notes"] or "（无更新说明）")
+        if QMessageBox.question(self, "检查更新", txt) == QMessageBox.StandardButton.Yes:
+            import webbrowser
+            try:
+                webbrowser.open(info["url"])
+            except Exception:
+                pass
+
+    def auto_check_update(self):
+        """启动后延迟检查一次，有新版本只走托盘提示，不打断使用。"""
+        if not self.cfg.get("check_update", True):
+            return
+
+        def _run():
+            info = UPD.check_update()
+            if not info:
+                return
+            try:
+                self.tray.showMessage("CatClock 有新版本 v%s" % info["version"],
+                                      "点此打开下载页（或在右键菜单「检查更新」查看）",
+                                      self.tray.icon(), 10000)
+                self._update_url = info["url"]
+                self.tray.messageClicked.connect(self._open_update_url)
+            except Exception:
+                pass
+
+        QTimer.singleShot(6000, _run)
+
+    def _open_update_url(self):
+        import webbrowser
+        try:
+            webbrowser.open(getattr(self, "_update_url", UPD.UPDATE_API))
+        except Exception:
+            pass
+
+    # ---------- 分组设置窗口 ----------
+    def open_settings(self):
+        dlg = S.SettingsDialog(self.cfg, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        new = dlg.result()
+        autostart = new.pop("_autostart", None)
+        reset_pos = new.pop("_reset_pos", False)
+        old = dict(self.cfg)
+        self.cfg.update(new)
+        save_cfg(self.cfg)
+        if autostart is not None and autostart != autostart_enabled():
+            ok = set_autostart(bool(autostart))
+            self.cfg["autostart"] = bool(autostart)
+            save_cfg(self.cfg)
+            if autostart and not ok:
+                QMessageBox.warning(self, "设置失败", "写入注册表失败，可能需要管理员权限")
+        self._apply_cfg(old)
+        if reset_pos:
+            self.reset_pos()
+
+    def _apply_cfg(self, old):
+        """设置窗口改完后的统一落地：图标 / 尺寸 / 置顶 / 天气 / 菜单勾选"""
+        if self.cfg.get("char") != old.get("char"):
+            self.set_char(self.cfg["char"])
+        if self.cfg.get("style") != old.get("style"):
+            self.set_style(self.cfg["style"])
+        if (abs(float(self.cfg.get("scale", 1.0)) - float(old.get("scale", 1.0))) > 0.001
+                or bool(self.cfg.get("mini")) != bool(old.get("mini"))):
+            self.apply_size()
+        if bool(self.cfg.get("top", True)) != bool(old.get("top", True)):
+            was = self.isVisible()
+            self.set_window_flags()
+            if was:
+                self.show()
+        if self.cfg.get("city", "") != old.get("city", ""):
+            self.weather = None
+            self.refresh_weather()
+        self._sync_menu()
+        self.update()
+
+    def _sync_menu(self):
+        """把右键菜单 / 托盘菜单的勾选态同步到当前 cfg"""
+        for act, key in getattr(self, "_check_actions", []):
+            try:
+                act.setChecked(bool(self.cfg.get(key, False)))
+            except Exception:
+                pass
+        try:
+            for name, a in self.char_actions.items():
+                a.setChecked(name == self.cfg.get("char"))
+            for name, a in self.style_actions.items():
+                a.setChecked(name == self.cfg.get("style"))
+            for key, a in self.hat_actions.items():
+                a.setChecked(key == str(self.cfg.get("hat", "auto")))
+            for pct, a in self.size_actions.items():
+                a.setChecked(abs(pct / 100.0 - float(self.cfg.get("scale", 1.0))) < 0.001)
+            self.act_auto.setChecked(autostart_enabled())
+        except Exception:
+            pass
+
+    def show_stats(self):
+        """工作时长统计：今日 / 本周 / 本月，并可导出 CSV。"""
+        from PyQt6.QtWidgets import QFileDialog
+        txt = stats.report_text()
+        box = QMessageBox(self)
+        box.setWindowTitle("工作统计")
+        box.setText(txt + "\n\n（在岗=工作时间内的时长，加班=下班后仍在的时长）")
+        box.addButton("导出 CSV", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("关闭", QMessageBox.ButtonRole.RejectRole)
+        if box.exec() != 0:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出工作统计", os.path.join(os.path.expanduser("~"), "work_stats.csv"),
+            "CSV 文件 (*.csv)")
+        if not path:
+            return
+        try:
+            n = stats.export_csv(path)
+            QMessageBox.information(self, "导出完成", "已导出 %d 天记录到\n%s" % (n, path))
+        except Exception as e:
+            QMessageBox.warning(self, "导出失败", str(e))
+
+    def show_about(self):
+        QMessageBox.information(
+            self, "关于 CatClock",
+            "CatClock v%s\n\n桌面可爱猫猫 · 下班倒计时挂件\n"
+            "21 个角色 / 6 款帽子 / 半身道具 / 2.5D\n\n"
+            "右键菜单可切换角色、帽子与时间设置。" % __version__)
 
     def reset_pos(self):
         self.cfg["pos"] = None
@@ -629,6 +801,22 @@ class CatClock(QWidget):
         # 整点报时：7-22 点且非休息日（深夜和休息不打扰）
         now = datetime.now()
         phase, start, end, secs, pct = self._status()
+        # 工作时长统计：工作中记在岗；过了下班时间还在，记加班
+        try:
+            last = getattr(self, "_stat_ts", None)
+            if last is not None:
+                dt = (now - last).total_seconds()
+                if 0 < dt < 120:
+                    day = now.strftime("%Y-%m-%d")
+                    if phase == "work":
+                        stats.add(day, work_sec=dt)
+                    elif phase == "off" and self.cfg.get("count_over", True):
+                        over = min(dt, (now - end).total_seconds() if now > end else dt)
+                        if over > 0:
+                            stats.add(day, over_sec=over)
+            self._stat_ts = now
+        except Exception:
+            pass
         if (now.minute == 0 and now.second < 3 and self.last_hour_mark != now.hour
                 and 7 <= now.hour <= 22 and phase != "rest"):
             self.last_hour_mark = now.hour

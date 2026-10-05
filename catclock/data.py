@@ -315,3 +315,13 @@ _HAND = {"rat": "fingers", "ox": "hoof", "tiger": "paw", "rabbit": "puff_paw",
 # 状态 → 手上的道具
 PROP_BY_WEATHER = {"rain": "umbrella", "thunder": "umbrella", "snow": "scarf"}
 
+# 帽子选项（右键菜单与设置窗口共用）：(key, 显示名)
+HATS = (
+    ("auto", "自动（按角色）"), ("none", "不戴帽子"), ("cap", "棒球帽"),
+    ("beanie", "毛线帽"), ("beret", "贝雷帽"), ("straw", "草帽"),
+    ("party", "派对帽"), ("crown", "皇冠"),
+)
+
+# 预设缩放档位（%）
+SIZES = (60, 80, 100, 120, 140, 160)
+
