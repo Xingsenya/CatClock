@@ -62,8 +62,8 @@ WM_HOTKEY = 0x0312
 
 class CatClock(QWidget):
     W = 272
-    BUB_TOP = 22          # 猫头顶之上的「气泡区」：语录气泡飘在这里，尾巴朝下指向猫头
-    H_FULL = 160          # 138(内容区) + 22(气泡区)，气泡底压住头顶 2px，顶部少留白
+    BUB_TOP = 0           # 0 = 气泡回到右侧文字区（v39 布局）；>0 = 飘在猫头顶上方
+    H_FULL = 142          # 右侧语录气泡 + 发薪日 + 进度条仍能完整落在面板内
     H_MINI = 76           # 迷你模式不显示气泡
 
     def __init__(self):
@@ -1595,17 +1595,28 @@ class CatClock(QWidget):
         pen = QPen(bd, 1.1)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
 
-        # 尾巴：朝下指向猫头（思考泡用小圆点串联，其余用小三角）
+        # 尾巴：右侧文字区时朝左指向猫；头顶模式(bottom 给定)时朝下指向猫头
         tx = tail_x if tail_x is not None else x + bw / 2.0
         tx = max(x + 10, min(x + bw - 10, tx))
-        if shape == "think":
+        if bottom is None:
+            if shape in ("round", "capsule", "cloud", "burst"):
+                tp = QPainterPath()
+                ty0 = y + bh * 0.30
+                tp.moveTo(QPointF(x + 1.5, ty0))
+                tp.lineTo(QPointF(x - 7.0, ty0 + bh * 0.36))
+                tp.lineTo(QPointF(x + 1.5, ty0 + bh * 0.72))
+                tp.closeSubpath()
+                p.setPen(pen)
+                p.setBrush(bg)
+                p.drawPath(tp)
+        elif shape == "think":
             for i, k in enumerate((1.0, 0.62)):
                 r = 3.8 * k
                 cy_d = y + bh + 2.5 + i * 5.2
                 p.setPen(pen)
                 p.setBrush(bg)
                 p.drawEllipse(QRectF(tx - r, cy_d - r, r * 2, r * 2))
-        elif shape in ("round", "cloud", "burst"):
+        elif shape in ("round", "capsule", "cloud", "burst"):
             tp = QPainterPath()
             tp.moveTo(QPointF(tx - 6.0, y + bh - 1.5))
             tp.lineTo(QPointF(tx + 6.0, y + bh - 1.5))
@@ -1909,6 +1920,7 @@ class CatClock(QWidget):
         x = 98 if mini else 112
         tw = W - x - 14
         yc = (H + yo) / 2.0                   # 视觉中心（含气泡区后的等效中心）
+        quote_h = 0                           # 语录气泡占高，用于下推发薪日/进度条
 
         # ---- 主文字区 ----
         if phase == "rest":
@@ -2034,22 +2046,23 @@ class CatClock(QWidget):
 
                 if msg:
                     text, alpha = msg
-                    # 气泡飘在猫头顶上方：底边压过头顶 2px（像从头上冒出来），尾巴朝下
-                    self._draw_bubble(p, 16, 6, W - 32, text, st, alpha=alpha,
-                                      shape=self._bubble_shape(kind, excited),
-                                      bottom=4 + self.BUB_TOP + 2, tail_x=ccx)
+                    # 右侧文字区：气泡在时间/副行下方，尾巴朝左指向猫
+                    _, bh = self._draw_bubble(p, x, 66 + yo, tw, text, st, alpha=alpha,
+                                              shape=self._bubble_shape(kind, excited))
+                    # 气泡高过预留的 14px 才把下方内容整体下移，减少跳动
+                    quote_h = max(0, bh - 14)
 
                 # 行3：发薪日
                 pay = self.payday_info()
                 if pay and phase != "pre":
                     p.setPen(QColor(st["pink"]))
-                    p.drawText(QRectF(x, 89 + yo, tw, 15),
+                    p.drawText(QRectF(x, 83 + yo + quote_h, tw, 15),
                                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                                "¥ %s" % pay)
 
         # ---- 进度条（非迷你、非休息日） ----
         if not mini and phase != "rest":
-            bx, by, bw, bh = x, 108 + yo, tw, 6
+            bx, by, bw, bh = x, 102 + yo + quote_h, tw, 6
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(*st["bar_bg"]))
             p.drawPath(rr(bx, by, bw, bh, bh / 2))
