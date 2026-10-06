@@ -16,7 +16,7 @@ from . import data as D
 from .util import _mix, _q_luma
 from .data import (_HEAD, _EYE, _EYE_DEFAULT, _TAIL, _HAND, _HAT, _HAT_EXT,
                    _BODY_SHAPE, _TOP_EXT)
-from .gfx import _ease, _ease_out, _lod, _line
+from .gfx import _ease, _ease_out, _lod, _line, heart_path
 
 CHARACTERS = D.CHARACTERS
 STYLES = D.STYLES

@@ -243,7 +243,8 @@ class _PaintMixin:
                     msg = (self.bubble_text or "",
                            255 if k < 2.6 else max(0, int(255 * (3.5 - k) / 0.9)))
                 else:
-                    if phase == "work" and not self.afk:
+                    # 上班前 / 下班后也有话说（休息日保持安静）
+                    if phase in ("work", "pre", "off") and not self.afk:
                         q = self._quote()
                         if q:
                             kind = "quote"

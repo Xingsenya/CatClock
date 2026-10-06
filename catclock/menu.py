@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 
 from . import data as D
 from . import __version__
+from . import quotes as Q
 from . import settings as S
 from . import stats
 from . import report

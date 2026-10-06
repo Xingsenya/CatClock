@@ -27,20 +27,9 @@ CHARACTERS = D.CHARACTERS
 STYLES = D.STYLES
 
 
-def heart_path(cx, cy, s):
-    """心形路径（参数方程），s 为尺寸"""
-    pts = []
-    n = 48
-    for i in range(n):
-        tt = 2 * math.pi * i / n
-        hx = 16 * math.sin(tt) ** 3
-        hy = 13 * math.cos(tt) - 5 * math.cos(2 * tt) - 2 * math.cos(3 * tt) - math.cos(4 * tt)
-        pts.append(QPointF(cx + hx * s / 34.0, cy - hy * s / 34.0))
-    path = QPainterPath(pts[0])
-    for pt in pts[1:]:
-        path.lineTo(pt)
-    path.closeSubpath()
-    return path
+# heart_path 已移到 gfx.py（parts.py 也要用，避免 parts↔icons 成环），
+# 这里 re-export 保持 `from .icons import heart_path` 的旧写法可用。
+from .gfx import heart_path  # noqa: F401
 
 
 def draw_weather_icon(p, x, y, s, kind, t=0.0):

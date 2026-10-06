@@ -739,7 +739,8 @@ class CatClock(_PaintMixin, _MenuMixin, _NotifyMixin, _InteractMixin, QWidget):
         """挑一条语录。优先级：
         Qwen 个性化 > 节日 > 设备告警 > 应用/会议场景 > 忙碌度 > 天气/周五/时段"""
         phase = self._status()[0]
-        if phase != "work":
+        # 上班前 / 下班后也会说两句话（休息日不打扰）
+        if phase not in ("work", "pre", "off"):
             return None
         now = datetime.now()
         hour = now.hour + now.minute / 60.0
@@ -756,8 +757,8 @@ class CatClock(_PaintMixin, _MenuMixin, _NotifyMixin, _InteractMixin, QWidget):
             if pool:
                 return pool[(i // 4) % len(pool)]
 
-        # 3) 情境感知（应用 / 会议 / 忙碌度 / 电量 / CPU / 全屏）
-        if self.cfg.get("context_aware", True) and self.sense:
+        # 3) 情境感知（应用 / 会议 / 忙碌度 / 电量 / CPU / 全屏）——只在工作时段
+        if self.cfg.get("context_aware", True) and self.sense and phase == "work":
             s = self.sense
             key = None
             if s.get("battery", 255) <= 20 and not s.get("ac", True):

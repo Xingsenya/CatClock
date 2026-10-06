@@ -4,6 +4,7 @@
 从 app.py 拆出：所有「对外发消息」和「拉外部数据」的入口都在这里。
 """
 import os
+import random
 import webbrowser
 from datetime import datetime
 

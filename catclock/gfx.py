@@ -6,8 +6,8 @@
 """
 import math  # noqa: F401 - 保留给下游 `from .gfx import math` 的旧写法
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QPen
+from PyQt6.QtCore import Qt, QPointF
+from PyQt6.QtGui import QColor, QPen, QPainterPath
 
 from .util import _mix, _q_luma  # noqa: F401 - 转出给下游使用
 
@@ -38,3 +38,24 @@ def _line(color, w, join=True):
     if join:
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     return pen
+
+
+def heart_path(cx, cy, s):
+    """心形路径（参数方程），s 为尺寸。
+
+    放在 gfx.py 是因为 parts.py（画爱心道具）和 icons.py 都要用，
+    而这两者之间不能互相 import（会成环）。
+    """
+    pts = []
+    n = 48
+    for i in range(n):
+        tt = 2 * math.pi * i / n
+        hx = 16 * math.sin(tt) ** 3
+        hy = (13 * math.cos(tt) - 5 * math.cos(2 * tt)
+              - 2 * math.cos(3 * tt) - math.cos(4 * tt))
+        pts.append(QPointF(cx + hx * s / 34.0, cy - hy * s / 34.0))
+    path = QPainterPath(pts[0])
+    for pt in pts[1:]:
+        path.lineTo(pt)
+    path.closeSubpath()
+    return path

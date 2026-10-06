@@ -8,16 +8,17 @@ Windows loader lock，进程会被 fail-fast 杀掉（0xC000041D）。
 """
 import ctypes
 import math
+import random
 from ctypes import wintypes
 from datetime import datetime
 
 from PyQt6.QtCore import Qt, QPoint, QPointF, QTimer, QRect, QRectF
 from PyQt6.QtGui import QCursor, QColor
-from PyQt6.QtWidgets import QApplication, QWidget, QMenu
+from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
 
 from . import data as D
 from .draw import make_paw_cursor
-from .util import save_cfg, font
+from .util import APP_NAME, save_cfg, font, autostart_enabled
 
 WM_HOTKEY = 0x0312
 MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, MOD_NOREPEAT = 1, 2, 4, 8, 0x4000
