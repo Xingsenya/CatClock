@@ -62,7 +62,7 @@ WM_HOTKEY = 0x0312
 
 class CatClock(QWidget):
     W = 272
-    H_FULL = 122
+    H_FULL = 134
     H_MINI = 76
 
     def __init__(self):
@@ -1369,6 +1369,30 @@ class CatClock(QWidget):
         self.bubble_text = text
         self.bubble_t = 0.0
 
+    def _draw_bubble(self, p, x, y, max_w, text, st, alpha=255, tail=True):
+        """绘制圆角文字气泡，自动换行并返回实际宽高。max_w 为可用最大宽度。"""
+        if not text:
+            return 0, 0
+        p.setFont(font("Microsoft YaHei", 9))
+        fm = p.fontMetrics()
+        pad_x, pad_y = 10, 5
+        max_line_w = max(20, int(max_w) - pad_x * 2)
+        br = fm.boundingRect(QRect(0, 0, max_line_w, 1000),
+                             Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignCenter, text)
+        bw = min(int(max_w), br.width() + pad_x * 2)
+        bh = br.height() + pad_y * 2
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(255, 255, 255, min(235, alpha)))
+        if tail:
+            p.drawEllipse(QRectF(x - 5, y + bh - 7, 8, 8))   # 指向猫的小尾巴
+        p.drawPath(rr(x, y, bw, bh, 9))
+        p.setPen(QColor(st["text"]))
+        p.setOpacity(alpha / 255.0)
+        p.drawText(QRectF(x, y + pad_y - 2, bw, bh - pad_y * 2 + 4),
+                   Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, text)
+        p.setOpacity(1.0)
+        return bw, bh
+
     def _effective_hat(self):
         """当前实际佩戴的帽子：用户选择 > 节日自动 > 角色默认。"""
         hat = str(self.cfg.get("hat", "auto"))
@@ -1736,7 +1760,8 @@ class CatClock(QWidget):
                 p.drawText(QRectF(x, 50, tw, 16),
                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, line1)
 
-                # 行2：气泡消息（猫说的话，尾巴指向猫）优先于语录
+                # 行2：气泡消息（猫说的话/语录，尾巴指向猫）
+                # 临时消息优先；没有临时消息时显示语录气泡（自动换行）
                 msg = None
                 if self.hydrate_t < 5.0:
                     k = self.hydrate_t
@@ -1752,41 +1777,32 @@ class CatClock(QWidget):
                     k = self.bubble_t
                     msg = (self.bubble_text or "",
                            255 if k < 2.6 else max(0, int(255 * (3.5 - k) / 0.9)))
+                else:
+                    if phase == "work" and not excited and not self.afk:
+                        q = self._quote()
+                        if q:
+                            msg = (q, 255)
+
+                quote_h = 0
                 if msg:
                     text, alpha = msg
-                    p.setFont(font("Microsoft YaHei", 9))
-                    fm = p.fontMetrics()
-                    bw3 = fm.horizontalAdvance(text) + 26
-                    bh3 = 18
-                    bx3, by3 = float(x), 64.0
-                    p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(QColor(255, 255, 255, min(235, alpha)))
-                    p.drawEllipse(QRectF(bx3 - 5, by3 + bh3 - 7, 8, 8))   # 指向猫的小尾巴
-                    p.drawPath(rr(bx3, by3, bw3, bh3, 9))
-                    p.setPen(QColor(st["pink"]))
-                    p.setOpacity(alpha / 255.0)
-                    p.drawText(QRectF(bx3, by3 - 1, bw3, bh3 + 2),
-                               Qt.AlignmentFlag.AlignCenter, text)
-                    p.setOpacity(1.0)
-                elif phase == "work" and not excited and not self.afk:
-                    q = self._quote()
-                    if q:
-                        p.setPen(QColor(st["text"]))
-                        p.drawText(QRectF(x, 66, tw, 15),
-                                   Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                                   "“%s”" % q)
+                    is_quote = (self.hydrate_t >= 5.0 and self.hourly_t >= 3.0
+                                and self.meow_bubble_t >= 2.5 and self.bubble_t >= 3.5)
+                    _, bh = self._draw_bubble(p, x, 64, tw, text, st,
+                                              alpha=alpha, tail=not is_quote)
+                    quote_h = bh + 6
 
-                # 行3：发薪日
+                # 行3：发薪日（语录气泡高时整体下移，避免重叠）
                 pay = self.payday_info()
                 if pay and phase != "pre":
                     p.setPen(QColor(st["pink"]))
-                    p.drawText(QRectF(x, 83, tw, 15),
+                    p.drawText(QRectF(x, 83 + quote_h, tw, 15),
                                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                                "¥ %s" % pay)
 
         # ---- 进度条（非迷你、非休息日） ----
         if not mini and phase != "rest":
-            bx, by, bw, bh = x, 102, tw, 6
+            bx, by, bw, bh = x, 102 + quote_h, tw, 6
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(*st["bar_bg"]))
             p.drawPath(rr(bx, by, bw, bh, bh / 2))
