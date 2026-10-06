@@ -53,6 +53,15 @@ def main():
     if "origin" not in remotes:
         sys.exit("未配置 origin，先执行：git remote add origin git@github.com:Xingsenya/CatClock.git")
 
+    # 规避 Windows 上 ~/.ssh/known_hosts 被 ACL 拒绝读取导致的 "Host key verification failed"
+    kh = os.path.join(ROOT, ".git", "gh_known_hosts")
+    key = os.path.expanduser("~/.ssh/catclock-deploy")
+    ssh_cmd = 'ssh -o UserKnownHostsFile="%s" -o StrictHostKeyChecking=no' % kh.replace("\\", "/")
+    if os.path.exists(key):
+        ssh_cmd += ' -i "%s"' % key.replace("\\", "/")
+    os.environ["GIT_SSH_COMMAND"] = ssh_cmd
+
+
     branch = (run(["git", "branch", "--show-current"]).stdout or "main").strip() or "main"
 
     if not a.no_commit:
