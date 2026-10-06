@@ -58,8 +58,20 @@ DEFAULTS = {
     "context_aware": True,  # 情境感知（应用/会议/忙碌度/电量）
     "edge_dock": True,      # 拖到屏幕边缘自动吸附（悬停时滑出）
     "surprise": True,       # 随机小惊喜（打喷嚏/追尾巴/掉金币）
-    "boss_key": True,       # 老板键 Ctrl+Alt+H 一键隐身
+    "boss_key": True,       # 老板键（F1：热键可自定义，见 hotkey_boss）
     "mood_daily": True,     # 每天工作时段提醒一次心情打卡
+    # ---- E1/E4 面板氛围与质感 ----
+    "weather_fx": True,     # E1：面板天气氛围（雨天落雨 / 雪天飘雪 / 雷暴闪光）
+    "night_dim": True,      # E1：日落后自动压暗面板（20:00-06:00）
+    "panel_alpha": 255,     # E4：面板不透明度（255=实心，200-230=半透明玻璃感）
+    "panel_shadow": True,   # E4：面板柔和投影
+    # ---- F1 快捷键自定义 ----
+    "hotkey_boss": "Ctrl+Alt+H",   # 隐身/恢复；留空=不注册
+    "hotkey_show": "",             # 显示/隐藏窗口
+    "hotkey_pomo": "",             # 启停番茄钟
+    # ---- F4 托盘 ----
+    "tray_time": True,      # 托盘图标叠加剩余时间
+    "tray_click": "toggle", # 托盘左键行为：toggle=显示隐藏 / menu=菜单 / mood=心情打卡
 }
 
 # ======================================================================
@@ -67,12 +79,38 @@ DEFAULTS = {
 # ======================================================================
 
 
+def auto_scale():
+    """E2：按屏幕 DPI 推荐初始缩放（4K / 高 DPI 屏不至于小得看不清）。
+
+    只在配置文件里没有 scale 时生效，用户手动调过的缩放永远优先。
+    """
+    try:
+        from PyQt6.QtGui import QGuiApplication
+        scr = QGuiApplication.primaryScreen()
+        if scr is None:
+            return 1.0
+        dpi = scr.logicalDotsPerInch() or 96.0
+    except Exception:
+        return 1.0
+    if dpi >= 192:
+        v = 1.5
+    elif dpi >= 144:
+        v = 1.25
+    elif dpi >= 120:
+        v = 1.1
+    else:
+        v = 1.0
+    return max(0.6, min(1.6, v))
+
+
 def load_cfg():
     cfg = dict(DEFAULTS)
+    raw = {}
     try:
         if os.path.exists(CONFIG_PATH):
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                cfg.update(json.load(f))
+                raw = json.load(f)
+            cfg.update(raw)
     except Exception:
         # B3：配置损坏时备份旧文件，用默认配置继续运行
         try:
@@ -88,6 +126,13 @@ def load_cfg():
         cfg["char"] = "橘猫"
     if cfg["style"] not in STYLES:
         cfg["style"] = "奶油"
+    # E2：首次运行（旧配置里没有 scale）时按屏幕 DPI 给一个合适的初始大小
+    if "scale" not in raw:
+        cfg["scale"] = auto_scale()
+    try:
+        cfg["scale"] = max(0.6, min(1.6, float(cfg.get("scale", 1.0))))
+    except Exception:
+        cfg["scale"] = 1.0
     return cfg
 
 

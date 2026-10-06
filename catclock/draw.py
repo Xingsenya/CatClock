@@ -5,7 +5,7 @@ import math
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (
     QColor, QPainter, QPainterPath, QPen, QLinearGradient, QRadialGradient,
-    QPixmap, QFont, QIcon,
+    QPixmap, QFont, QIcon, QCursor,
 )
 
 from . import data as D
@@ -1778,4 +1778,58 @@ def make_icon(size=128, char=None):
     draw_cat(p, size / 2, size * 0.56, size * 0.82, colors)
     p.end()
     return QIcon(pm)
+
+
+def make_tray_icon(size=64, char=None, text=""):
+    """F4：托盘图标 —— 猫头 + 底部胶囊显示剩余时间（如 38 / 1h20）。"""
+    colors = CHARACTERS.get(char) or CHARACTERS["橘猫"]
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    g = QRadialGradient(size * 0.36, size * 0.30, size * 0.95)
+    g.setColorAt(0, QColor("#FFF8EF"))
+    g.setColorAt(1, QColor("#FFD3AC"))
+    p.setBrush(g)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.drawEllipse(QRectF(1.5, 1.5, size - 3, size - 3))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.setPen(QPen(QColor("#FFC496"), size * 0.018))
+    p.drawEllipse(QRectF(2, 2, size - 4, size - 4))
+    if text:
+        draw_cat(p, size / 2, size * 0.46, size * 0.66, colors)
+        # 底部胶囊：深色底 + 白字，小尺寸下也尽量能认出数字
+        h = size * 0.28
+        w = min(size - 3.0, max(size * 0.44, len(text) * size * 0.20))
+        x, y = (size - w) / 2.0, size - h - 1.0
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(38, 32, 30, 232))
+        p.drawRoundedRect(QRectF(x, y, w, h), h * 0.36, h * 0.36)
+        p.setPen(QColor("#FFFFFF"))
+        f = QFont("Segoe UI", int(size * (0.19 if len(text) <= 2 else 0.15)))
+        f.setWeight(QFont.Weight.Bold)
+        p.setFont(f)
+        p.drawText(QRectF(x, y, w, h), Qt.AlignmentFlag.AlignCenter, text)
+    else:
+        draw_cat(p, size / 2, size * 0.56, size * 0.82, colors)
+    p.end()
+    return QIcon(pm)
+
+
+def make_paw_cursor(size=32):
+    """E3：猫爪光标（程序绘制，不额外占资源体积）。热点放在爪心偏上。"""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    u = size / 32.0
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    pen = QPen(QColor("#4A3B33"), 1.5 * u)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(QColor("#FFF3E4"))
+    p.drawEllipse(QRectF(9.0 * u, 14.0 * u, 14.0 * u, 11.0 * u))   # 掌垫
+    for tx, ty, r in ((7.5, 9.0, 3.1), (12.5, 5.6, 3.3), (19.5, 5.6, 3.3), (24.5, 9.4, 3.1)):
+        p.drawEllipse(QRectF((tx - r) * u, (ty - r) * u, 2 * r * u, 2 * r * u))
+    p.end()
+    return QCursor(pm, int(16 * u), int(7 * u))
 

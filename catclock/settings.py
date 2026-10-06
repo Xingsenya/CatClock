@@ -9,15 +9,17 @@
 import os
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import (
     QDialog, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QGroupBox, QComboBox, QCheckBox, QLineEdit, QSpinBox, QLabel, QPushButton,
     QMessageBox, QFileDialog, QScrollArea, QFrame, QApplication,
+    QKeySequenceEdit, QFormLayout as _QFormLayout,
 )
 
 from . import data as D
 from .util import (CONFIG_DIR, CONFIG_PATH, autostart_enabled,
-                   export_bundle, import_bundle)
+                   export_bundle, import_bundle, auto_scale)
 from . import stats
 from . import quotes as Q
 from . import sense as SENSE
@@ -69,6 +71,14 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self._scroll(self._tab_smart()), "智能")
         self.tabs.addTab(self._scroll(self._tab_adv()), "高级")
 
+        # H5：搜索框（配置项太多时直接定位）
+        self.e_search = QLineEdit()
+        self.e_search.setPlaceholderText("搜索设置项…（如 天气 / 热键 / 番茄）")
+        self.e_search.setClearButtonEnabled(True)
+        self.e_search.textChanged.connect(self._on_search)
+        self.lab_search = QLabel("")
+        self.lab_search.setStyleSheet("color:#9A8B80; font: 9pt 'Microsoft YaHei';")
+
         btns = QHBoxLayout()
         ok = QPushButton("确定")
         cancel = QPushButton("取消")
@@ -81,8 +91,69 @@ class SettingsDialog(QDialog):
         btns.addWidget(cancel)
 
         root = QVBoxLayout(self)
+        root.addWidget(self.e_search)
+        root.addWidget(self.lab_search)
         root.addWidget(self.tabs)
         root.addLayout(btns)
+        self._build_search_index()
+
+    # ---------------------------------------------------------------- H5 搜索
+    def _ctl_text(self, w):
+        """控件的可搜索文本（勾选框取自己的文案，表单控件取左侧标签）。"""
+        try:
+            from PyQt6.QtWidgets import QCheckBox, QLabel, QAbstractButton
+            if isinstance(w, QCheckBox):
+                return w.text()
+            if isinstance(w, QLabel):
+                return w.text()
+            if isinstance(w, QAbstractButton):
+                return w.text()
+        except Exception:
+            pass
+        return ""
+
+    def _build_search_index(self):
+        """把「分组 + 组内控件」登记成可搜索条目。"""
+        self._tab_widgets = [self.tabs.widget(i).widget()
+                             for i in range(self.tabs.count())]
+        self._search_groups = []          # [(tab_index, group_box, [控件...])]
+        for ti, w in enumerate(self._tab_widgets):
+            for gb in w.findChildren(QGroupBox):
+                ctls = []
+                for c in gb.findChildren(QWidget):
+                    if self._ctl_text(c):
+                        ctls.append(c)
+                self._search_groups.append((ti, gb, ctls))
+
+    def _on_search(self, text):
+        q = (text or "").strip().lower()
+        if not q:
+            for _ti, gb, ctls in self._search_groups:
+                gb.setVisible(True)
+                for c in ctls:
+                    c.setVisible(True)
+            self.lab_search.setText("")
+            return
+        hit_tabs, total = [], 0
+        for ti, gb, ctls in self._search_groups:
+            title_hit = q in gb.title().lower()
+            n = 0
+            for c in ctls:
+                m = title_hit or q in self._ctl_text(c).lower()
+                c.setVisible(m)
+                if m:
+                    n += 1
+            gb.setVisible(n > 0)
+            if n > 0:
+                total += n
+                if ti not in hit_tabs:
+                    hit_tabs.append(ti)
+        if hit_tabs:
+            self.tabs.setCurrentIndex(hit_tabs[0])
+            self.lab_search.setText("命中 %d 项（第 %s 页）"
+                                    % (total, self.tabs.tabText(hit_tabs[0])))
+        else:
+            self.lab_search.setText("没有匹配的设置项")
 
     def _scroll(self, widget):
         """B1：把标签页内容包在滚动区域里，避免 768 屏装不下智能页。"""
@@ -150,11 +221,50 @@ class SettingsDialog(QDialog):
             v2.addWidget(b)
         v.addWidget(g2)
 
+        # ---- E1 / E4：面板氛围与质感 ----
+        g3 = QGroupBox("面板氛围与质感")
+        v3 = QVBoxLayout(g3)
+        self.k_wfx = self._chk("天气氛围（雨天落雨 / 雪天飘雪 / 雷暴闪光）", "weather_fx", True)
+        self.k_night = self._chk("日落后自动压暗面板（20:00–06:00）", "night_dim", True)
+        self.k_shadow = self._chk("面板柔和投影", "panel_shadow", True)
+        for b in (self.k_wfx, self.k_night, self.k_shadow):
+            v3.addWidget(b)
+        h3 = QHBoxLayout()
+        h3.addWidget(QLabel("面板不透明度："))
+        self.s_alpha = QSpinBox()
+        self.s_alpha.setRange(150, 255)
+        self.s_alpha.setSuffix(" / 255")
+        self.s_alpha.setFixedWidth(110)
+        self.s_alpha.setValue(int(self.cfg.get("panel_alpha", 255) or 255))
+        h3.addWidget(self.s_alpha)
+        b_dpi = QPushButton("按屏幕 DPI 推荐大小")
+        b_dpi.setToolTip("E2：4K / 高 DPI 屏自动选一个合适的初始缩放")
+        b_dpi.clicked.connect(self._auto_scale)
+        h3.addWidget(b_dpi)
+        h3.addStretch(1)
+        v3.addLayout(h3)
+        v.addWidget(g3)
+
         tip = QLabel("提示：在窗口上滚轮可直接缩放，双击可切换秒显示。")
         tip.setStyleSheet("color:#9A8B80; font: 9pt 'Microsoft YaHei';")
         v.addWidget(tip)
         v.addStretch(1)
         return w
+
+    def _auto_scale(self):
+        """E2：按屏幕 DPI 推荐一个缩放档位。"""
+        v = auto_scale()
+        best, bd = 0, 9e9
+        for i in range(self.c_size.count()):
+            try:
+                d = abs(float(self.c_size.itemData(i)) - v)
+            except Exception:
+                continue
+            if d < bd:
+                best, bd = i, d
+        self.c_size.setCurrentIndex(best)
+        QMessageBox.information(self, "已按屏幕 DPI 推荐",
+                                "推荐大小：%d%%（还能用滚轮继续微调）" % int(round(v * 100)))
 
     # ---------------------------------------------------------------- 时间
     def _tab_time(self):
@@ -399,8 +509,9 @@ class SettingsDialog(QDialog):
         for w in (self.c_hat, self.c_acc, self.c_size):
             w.currentIndexChanged.connect(self._emit_preview)
         for w in (self.k_body, self.k_25d, self.k_mini, self.k_sec, self.k_top,
-                  self.k_ear):
+                  self.k_ear, self.k_wfx, self.k_night, self.k_shadow):
             w.stateChanged.connect(self._emit_preview)
+        self.s_alpha.valueChanged.connect(self._emit_preview)
 
     def _snapshot(self):
         if self._snap is None:
@@ -426,6 +537,10 @@ class SettingsDialog(QDialog):
             "show_sec": self.k_sec.isChecked(),
             "top": self.k_top.isChecked(),
             "ear_tw": self.k_ear.isChecked(),
+            "weather_fx": self.k_wfx.isChecked(),
+            "night_dim": self.k_night.isChecked(),
+            "panel_shadow": self.k_shadow.isChecked(),
+            "panel_alpha": int(self.s_alpha.value()),
         }
 
     def reject(self):
@@ -497,6 +612,38 @@ class SettingsDialog(QDialog):
         vv.addWidget(self.k_upd)
         v.addWidget(g)
 
+        gk = QGroupBox("快捷键 / 热键（留空 = 不注册；改完立即生效）")
+        fk = QFormLayout(gk)
+        self.k_boss = self._chk("老板键一键隐身", "boss_key", True)
+        self.e_hk_boss = self._hk("hotkey_boss", "Ctrl+Alt+H")
+        self.e_hk_show = self._hk("hotkey_show", "")
+        self.e_hk_pomo = self._hk("hotkey_pomo", "")
+        fk.addRow(self.k_boss, self.e_hk_boss)
+        fk.addRow("显示 / 隐藏窗口：", self.e_hk_show)
+        fk.addRow("启停番茄钟：", self.e_hk_pomo)
+        lab_hk = QLabel("组合键建议带 Ctrl+Alt，避免和其它软件抢。被占用时菜单里仍可点。")
+        lab_hk.setWordWrap(True)
+        lab_hk.setStyleSheet("color:#9A8B80; font: 9pt 'Microsoft YaHei';")
+        fk.addRow(lab_hk)
+        v.addWidget(gk)
+
+        gt = QGroupBox("托盘图标")
+        vt = QVBoxLayout(gt)
+        self.k_tray_time = self._chk("托盘图标显示剩余时间", "tray_time", True)
+        vt.addWidget(self.k_tray_time)
+        ht = QHBoxLayout()
+        ht.addWidget(QLabel("左键单击："))
+        self.c_tray_click = QComboBox()
+        self.c_tray_click.addItem("显示 / 隐藏窗口", "toggle")
+        self.c_tray_click.addItem("弹出右键菜单", "menu")
+        self.c_tray_click.addItem("心情打卡", "mood")
+        idx = self.c_tray_click.findData(str(self.cfg.get("tray_click", "toggle")))
+        self.c_tray_click.setCurrentIndex(max(0, idx))
+        ht.addWidget(self.c_tray_click)
+        ht.addStretch(1)
+        vt.addLayout(ht)
+        v.addWidget(gt)
+
         g2 = QGroupBox("工作统计")
         v2 = QVBoxLayout(g2)
         self.k_over = self._chk("把下班后的时间计入加班", "count_over", True)
@@ -566,6 +713,12 @@ class SettingsDialog(QDialog):
         b = QCheckBox(text)
         b.setChecked(bool(self.cfg.get(key, default)))
         return b
+
+    def _hk(self, key, default):
+        """F1：快捷键输入（点一下再按键即可录制组合）。"""
+        ed = QKeySequenceEdit(QKeySequence(str(self.cfg.get(key, default) or "")))
+        ed.setFixedWidth(150)
+        return ed
 
     def _open_path(self, path):
         try:
@@ -704,6 +857,18 @@ class SettingsDialog(QDialog):
             "over_care": self.k_care.isChecked(),
             "pomo_focus": int(self.s_pf.value()),
             "pomo_break": int(self.s_pb.value()),
+            # E1 / E4 面板氛围与质感
+            "weather_fx": self.k_wfx.isChecked(),
+            "night_dim": self.k_night.isChecked(),
+            "panel_shadow": self.k_shadow.isChecked(),
+            "panel_alpha": int(self.s_alpha.value()),
+            # F1 快捷键自定义
+            "hotkey_boss": self.e_hk_boss.keySequence().toString(),
+            "hotkey_show": self.e_hk_show.keySequence().toString(),
+            "hotkey_pomo": self.e_hk_pomo.keySequence().toString(),
+            # F4 托盘
+            "tray_time": self.k_tray_time.isChecked(),
+            "tray_click": self.c_tray_click.currentData(),
         }
         out["_autostart"] = self.k_auto.isChecked()
         out["_reset_pos"] = bool(getattr(self, "_want_reset_pos", False))

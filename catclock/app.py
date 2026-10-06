@@ -37,10 +37,11 @@ from . import llm
 from . import __version__
 from .util import (
     APP_NAME, CONFIG_DIR, CONFIG_PATH, DEFAULTS, load_cfg, save_cfg, app_path,
-    autostart_enabled, set_autostart, _raise_existing, acquire_single, rr,
-    _q_luma, _mix, user_idle_seconds, font,
+    autostart_enabled, set_autostart,     _raise_existing, acquire_single, rr,
+    _q_luma, _mix, user_idle_seconds, font, auto_scale,
 )
-from .draw import draw_cat, heart_path, draw_weather_icon, make_icon
+from .draw import (draw_cat, heart_path, draw_weather_icon, make_icon,
+                   make_tray_icon, make_paw_cursor)
 from .data import (
     CHARACTERS, STYLES, WMO_TEXT, wmo_kind, PROP_BY_WEATHER,
 )
@@ -58,6 +59,45 @@ class _WinMSG(ctypes.Structure):
                 ("time", wintypes.DWORD), ("pt", wintypes.POINT)]
 
 WM_HOTKEY = 0x0312
+MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, MOD_NOREPEAT = 1, 2, 4, 8, 0x4000
+
+_VK_EXTRA = {
+    "ESC": 0x1B, "SPACE": 0x20, "TAB": 0x09, "ENTER": 0x0D, "RETURN": 0x0D,
+    "BACKSPACE": 0x08, "INS": 0x2D, "DEL": 0x2E, "HOME": 0x24, "END": 0x23,
+    "PGUP": 0x21, "PGDOWN": 0x22, "LEFT": 0x25, "UP": 0x26, "RIGHT": 0x27,
+    "DOWN": 0x28, "`": 0xC0, "-": 0xBD, "=": 0xBB, "[": 0xDB, "]": 0xDD,
+    "\\": 0xDC, ";": 0xBA, "'": 0xDE, ",": 0xBC, ".": 0xBE, "/": 0xBF,
+}
+
+
+def _parse_hotkey(seq):
+    """F1：把 'Ctrl+Alt+H' 解析成 (mods, vk)；留空/无法识别返回 None。"""
+    if not seq:
+        return None
+    parts = [x.strip() for x in str(seq).split("+") if x.strip()]
+    mods, key = 0, None
+    for p in parts:
+        u = p.upper()
+        if u in ("CTRL", "CONTROL", "STRG"):
+            mods |= MOD_CONTROL
+        elif u == "ALT":
+            mods |= MOD_ALT
+        elif u == "SHIFT":
+            mods |= MOD_SHIFT
+        elif u in ("WIN", "SUPER", "META"):
+            mods |= MOD_WIN
+        else:
+            key = p
+    if not key:
+        return None
+    u = key.upper()
+    if u.startswith("F") and u[1:].isdigit() and 1 <= int(u[1:]) <= 24:
+        return mods, 0x6F + int(u[1:])
+    if u in _VK_EXTRA:
+        return mods, _VK_EXTRA[u]
+    if len(key) == 1:
+        return mods, ord(u)
+    return None
 
 
 def _mix_rgb(c, q, k):
@@ -109,6 +149,9 @@ class CatClock(QWidget):
         self._rest_eve_day = None  # 已提示过的"明天休息"日期
         self.ear_tw = None         # 2.5D 耳抖 (方向, 起始 t0)
         self.next_ear_tw = 12.0    # 下次耳抖的 t0
+        self.hover_cat = False     # E3：鼠标是否停在猫身上
+        self._paw_cursor = None    # E3：爪型光标（懒加载）
+        self._tray_min_mark = None  # F4：托盘图标上已渲染的分钟数
 
         # ---- 情境感知 / 节日 / 心情 / 智能语录 ----
         self.sense = {}            # sense.sample() 结果（每 tick 刷新，内部节流）
@@ -128,6 +171,7 @@ class CatClock(QWidget):
         # ---- 老板键 / 边缘吸附 ----
         self._hidden = False       # 老板键隐身中
         self._hotkey_ok = False
+        self._hotkey_err = []
         self._dock_edge = None     # left/right/top/None
         self._dock_off = None      # 完整可见位置（贴边但未藏）
         self._dock_pos = None      # 吸附后的藏身位置
@@ -385,6 +429,7 @@ class CatClock(QWidget):
         self.tray.setIcon(make_icon(64, name))
         self.setWindowIcon(make_icon(64, name))
         self._update_tray_tooltip()
+        self._update_tray_icon(True)      # F4：换角色后重画带时间的托盘图标
         self.update()
 
     def set_style(self, name):
@@ -616,13 +661,56 @@ class CatClock(QWidget):
         tray_menu.addAction(self.act_quit)
         self.tray.setContextMenu(tray_menu)
         self.tray.activated.connect(self._tray_activated)
+        self._update_tray_icon(True)
         self.tray.show()
 
     def _update_tray_tooltip(self):
         self.tray.setToolTip("%s v%s · %s" % (APP_NAME, __version__, self.cfg["char"]))
 
+    def _tray_time_text(self):
+        """F4：托盘图标上叠的剩余时间文案（尽量 2–4 个字符，小尺寸也认得出）。"""
+        try:
+            phase, _s, _e, secs, _p = self._status()
+        except Exception:
+            return ""
+        if phase == "rest":
+            return "休"
+        if phase == "pre":
+            h, rem = divmod(int(secs), 3600)
+            m = rem // 60
+            return ("%dh" % h) if h >= 1 else ("%dm" % max(1, m))
+        if phase == "off":
+            return "下班"
+        h, rem = divmod(int(max(0, secs)), 3600)
+        m = rem // 60
+        if h >= 1:
+            return "%dh%d" % (h, m) if m else "%dh" % h
+        return str(max(0, m))
+
+    def _update_tray_icon(self, force=False):
+        """F4：托盘图标叠加剩余时间，分钟变化时刷新。"""
+        if not hasattr(self, "tray"):
+            return
+        show = bool(self.cfg.get("tray_time", True))
+        mark = int(self.t0 // 60) if show else -1
+        if not force and mark == self._tray_min_mark:
+            return
+        self._tray_min_mark = mark
+        try:
+            self.tray.setIcon(make_tray_icon(64, self.cfg["char"],
+                                             self._tray_time_text() if show else ""))
+        except Exception:
+            pass
+
     def _tray_activated(self, reason):
-        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+        if reason != QSystemTrayIcon.ActivationReason.Trigger:
+            return
+        act = str(self.cfg.get("tray_click", "toggle") or "toggle")
+        if act == "menu":
+            self.menu.exec(QCursor.pos())
+        elif act == "mood":
+            self.ask_mood()
+        else:
             self._show_or_hide()
 
     def _show_or_hide(self):
@@ -872,9 +960,15 @@ class CatClock(QWidget):
         if self.cfg.get("city", "") != old.get("city", ""):
             self.weather = None
             self.refresh_weather()
-        if bool(self.cfg.get("boss_key", True)) != bool(old.get("boss_key", True)):
+        # F1：老板键开关 / 任意热键组合变化 → 重新注册
+        if (bool(self.cfg.get("boss_key", True)) != bool(old.get("boss_key", True))
+                or self.cfg.get("hotkey_boss", "") != old.get("hotkey_boss", "")
+                or self.cfg.get("hotkey_show", "") != old.get("hotkey_show", "")
+                or self.cfg.get("hotkey_pomo", "") != old.get("hotkey_pomo", "")):
             self._unregister_hotkey()
             self._register_hotkey()
+        # F4：托盘图标 / 左键行为
+        self._update_tray_icon(True)
         if bool(self.cfg.get("edge_dock", True)) != bool(old.get("edge_dock", True)):
             self._apply_dock()             # 开→重新吸附，关→恢复原位并停掉监听
         self._sync_menu()
@@ -967,28 +1061,45 @@ class CatClock(QWidget):
     def _unregister_hotkey(self):
         try:
             hwnd = int(self.winId())
-            ctypes.windll.user32.UnregisterHotKey(hwnd, 1)
-            ctypes.windll.user32.UnregisterHotKey(hwnd, 2)
+            for hid in (1, 2, 3):
+                ctypes.windll.user32.UnregisterHotKey(hwnd, hid)
         except Exception:
             pass
 
     def _register_hotkey(self):
-        """注册 Ctrl+Alt+H 全局热键（失败静默，菜单仍可用）"""
-        if not self.cfg.get("boss_key", True):
-            return
+        """F1：注册全局热键（1=老板键 / 2=显示隐藏 / 3=番茄钟）。
+
+        组合键可在设置 → 高级里自定义；留空表示不注册。注册失败（被其它程序
+        占用）静默跳过，菜单里仍然能用。"""
+        self._unregister_hotkey()
+        self._hotkey_ok = False
+        jobs = ((1, "hotkey_boss" if self.cfg.get("boss_key", True) else None),
+                (2, "hotkey_show"), (3, "hotkey_pomo"))
         try:
-            MOD_ALT, MOD_CONTROL, MOD_NOREPEAT = 0x0001, 0x0002, 0x4000
             hwnd = int(self.winId())
-            ok = ctypes.windll.user32.RegisterHotKey(
-                hwnd, 1, MOD_ALT | MOD_CONTROL | MOD_NOREPEAT, ord("H"))
-            self._hotkey_ok = bool(ok)
-            if not ok:
-                # 被其它程序占用时退一档：Ctrl+Alt+`
-                ok = ctypes.windll.user32.RegisterHotKey(
-                    hwnd, 2, MOD_ALT | MOD_CONTROL | MOD_NOREPEAT, 0xC0)
-                self._hotkey_ok = bool(ok)
         except Exception:
-            self._hotkey_ok = False
+            return
+        self._hotkey_err = []
+        for hid, ckey in jobs:
+            if not ckey:
+                continue
+            seq = str(self.cfg.get(ckey, "") or "").strip()
+            if not seq:
+                continue
+            parsed = _parse_hotkey(seq)
+            if parsed is None:
+                self._hotkey_err.append("%s：无法识别" % seq)
+                continue
+            mods, vk = parsed
+            try:
+                ok = ctypes.windll.user32.RegisterHotKey(
+                    hwnd, hid, mods | MOD_NOREPEAT, vk)
+            except Exception:
+                ok = False
+            if ok:
+                self._hotkey_ok = True
+            else:
+                self._hotkey_err.append("%s：被占用或无效" % seq)
 
     def nativeEvent(self, eventType, message):
         """接收 WM_HOTKEY（老板键）。
@@ -1003,7 +1114,13 @@ class CatClock(QWidget):
             if eventType in ("windows_generic_MSG", "windows_dispatcher_MSG"):
                 msg = _WinMSG.from_address(int(message))
                 if msg.message == WM_HOTKEY:
-                    self.toggle_boss()
+                    wid = int(msg.wParam)
+                    if wid == 1:
+                        self.toggle_boss()
+                    elif wid == 2:
+                        self._show_or_hide()
+                    elif wid == 3:
+                        self.toggle_pomo()
                     handled = True
         except Exception:
             pass
@@ -1273,18 +1390,42 @@ class CatClock(QWidget):
             self.move(gpt - self.drag_off)
             e.accept()
         else:
-            # 悬停猫头检测
+            # E3：悬停猫身上 —— 抬头看你 + 爪型光标 + 偶尔抖一下耳朵
             pos = e.position()
             s = float(self.cfg.get("scale", 1.0))
             lx, ly = pos.x() / s, pos.y() / s
             cs, ccx, ccy = self._cat_geo()
-            if (lx - ccx) ** 2 + (ly - ccy) ** 2 < (cs * 0.55) ** 2:
+            on_cat = (lx - ccx) ** 2 + (ly - ccy) ** 2 < (cs * 0.55) ** 2
+            if on_cat:
+                if not self.hover_cat:
+                    self.hover_cat = True
+                    self._set_paw_cursor(True)
+                    if self.cfg.get("dim25") and self.ear_tw is None:
+                        self.ear_tw = (random.choice((-1, 1)), self.t0)
                 if self.hover_cat_t == 0.0 and self.meow_bubble_t >= 2.5 \
                         and random.random() < 0.15:
                     self.meow_bubble_t = 0.0
                 self.hover_cat_t += 0.1
             else:
+                if self.hover_cat:
+                    self.hover_cat = False
+                    self._set_paw_cursor(False)
                 self.hover_cat_t = 0.0
+
+    def _set_paw_cursor(self, on):
+        """E3：猫身上换爪型光标（程序绘制，懒加载一次）。"""
+        if not on:
+            self.unsetCursor()
+            return
+        if self._paw_cursor is None:
+            try:
+                self._paw_cursor = make_paw_cursor(32)
+            except Exception:
+                self._paw_cursor = False
+        if self._paw_cursor:
+            self.setCursor(self._paw_cursor)
+        else:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def mouseReleaseEvent(self, e):
         if self.drag_off is not None:
@@ -1359,6 +1500,8 @@ class CatClock(QWidget):
 
     def leaveEvent(self, e):
         self.hover = False
+        self.hover_cat = False
+        self._set_paw_cursor(False)
         self._bg_invalidate()
         self.update()
 
@@ -1371,6 +1514,7 @@ class CatClock(QWidget):
     def _tick(self):
         dt = getattr(self, "step", 0.1)      # 自适应帧率下的真实帧间隔
         self.t0 += dt
+        self._update_tray_icon()             # F4：托盘图标上的剩余时间
         # C2：番茄钟倒计时（用 step 计时，避免被后面的 dt 覆盖）
         if self.pomo:
             self.pomo["left"] -= getattr(self, "step", 0.1)
@@ -1967,13 +2111,33 @@ class CatClock(QWidget):
         self._bg_key = None
         self._bg_pm = None
 
+    def _is_night(self):
+        """E1：日落后（20:00–06:00）面板自动压暗一档，夜里不刺眼。"""
+        if not self.cfg.get("night_dim", True):
+            return False
+        h = datetime.now().hour
+        return h >= 20 or h < 6
+
     def _bg_pixmap(self):
         """带阴影的圆角面板：内容只在外观变化时重绘，平时直接贴图。"""
         key = (self.cfg.get("style"), bool(self.hover), bool(self.cfg.get("mini")),
-               round(float(self.cfg.get("scale", 1.0)), 2), self.width(), self.height())
+               round(float(self.cfg.get("scale", 1.0)), 2), self.width(), self.height(),
+               self._is_night(), int(self.cfg.get("panel_alpha", 255)),
+               bool(self.cfg.get("panel_shadow", True)))
         if self._bg_key == key and self._bg_pm is not None:
             return self._bg_pm
         st = self.style()
+        night = self._is_night()
+        # E4：面板不透明度（半透明玻璃感）；夜间再向深色压一档
+        alpha = max(120, min(255, int(self.cfg.get("panel_alpha", 255) or 255)))
+
+        def _pc(rgb):
+            c = QColor(*rgb)
+            if night:
+                c = _mix(c, QColor(26, 24, 34), 0.18)
+            c.setAlpha(alpha)
+            return c
+
         s = float(self.cfg.get("scale", 1.0))
         mini = bool(self.cfg.get("mini", False))
         W = self.W
@@ -1986,26 +2150,80 @@ class CatClock(QWidget):
         q = QPainter(pm)
         q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         q.scale(s, s)
-        # 柔和阴影
-        for i in range(6):
-            k = 5 - i
-            inset = pad + k * 1.2 - 1.2
-            q.setPen(Qt.PenStyle.NoPen)
-            q.setBrush(QColor(st["shadow"][0], st["shadow"][1], st["shadow"][2], 8 + k * 4))
-            q.drawPath(rr(inset, inset + 1.6, W - 2 * inset, H - 2 * inset, 25))
+        # E4：柔和阴影（可关）
+        if self.cfg.get("panel_shadow", True):
+            for i in range(6):
+                k = 5 - i
+                inset = pad + k * 1.2 - 1.2
+                q.setPen(Qt.PenStyle.NoPen)
+                q.setBrush(QColor(st["shadow"][0], st["shadow"][1], st["shadow"][2], 8 + k * 4))
+                q.drawPath(rr(inset, inset + 1.6, W - 2 * inset, H - 2 * inset, 25))
         # 面板
         g = QLinearGradient(0, pad, 0, H - pad)
-        g.setColorAt(0, QColor(*st["panel0"]))
-        g.setColorAt(1, QColor(*st["panel1"]))
+        g.setColorAt(0, _pc(st["panel0"]))
+        g.setColorAt(1, _pc(st["panel1"]))
         q.setBrush(g)
         ba = 235 if self.hover else 190
         bcol = st["border_h"] if self.hover else st["border"]
-        q.setPen(QPen(QColor(bcol[0], bcol[1], bcol[2], ba), 1.3))
+        q.setPen(QPen(QColor(bcol[0], bcol[1], bcol[2], int(ba * alpha / 255.0)), 1.3))
         q.drawPath(rr(pad, pad, W - 2 * pad, H - 2 * pad, 24))
         q.end()
         self._bg_key = key
         self._bg_pm = pm
         return pm
+
+    # ---------- E1：面板天气氛围 ----------
+    def _weather_fx_kind(self):
+        """当前该画哪种氛围：rain / snow / thunder / None。"""
+        if not self.cfg.get("weather_fx", True):
+            return None
+        if not self.weather:
+            return None
+        k = self.weather.get("kind")
+        if k in ("rain", "thunder"):
+            return k
+        if k in ("snow", "sleet"):
+            return "snow"
+        return None
+
+    def _draw_weather_fx(self, p, W, H, st):
+        """雨滴沿面板滑落 / 雪花飘落 / 雷暴闪光。粒子位置由 t0 推导，无需保存状态。"""
+        kind = self._weather_fx_kind()
+        if kind is None:
+            return
+        pad = 5
+        p.save()
+        p.setClipPath(rr(pad, pad, W - 2 * pad, H - 2 * pad, 24))   # 只在面板圆角内画
+        if kind == "snow":
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(255, 255, 255, 190))
+            for i in range(22):
+                r = (i * 37) % 100 / 100.0
+                x = pad + 6 + ((i * 53) % int(W - 2 * pad - 12))
+                span = H - 2 * pad
+                y = pad + ((self.t0 * (14 + (i % 5) * 5) + r * span * 3) % span)
+                x += math.sin(self.t0 * 0.9 + i) * 5.0              # 左右轻摆
+                d = 1.6 + (i % 3) * 0.7
+                p.drawEllipse(QRectF(x, y, d, d))
+        else:
+            # 雨：斜线；thunder 时偶尔整块提亮（闪光）
+            if kind == "thunder":
+                fl = (self.t0 % 7.0)
+                if fl < 0.14:
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.setBrush(QColor(255, 255, 255, 70))
+                    p.drawPath(rr(pad, pad, W - 2 * pad, H - 2 * pad, 24))
+            pen = QPen(QColor(255, 255, 255, 150), 1.3)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(pen)
+            span = H - 2 * pad
+            for i in range(26):
+                r = (i * 41) % 100 / 100.0
+                x = pad + 4 + ((i * 61) % int(W - 2 * pad - 8))
+                y = pad + ((self.t0 * (300 + (i % 4) * 90) + r * span * 4) % (span + 30)) - 30
+                ln = 12 + (i % 3) * 5
+                p.drawLine(QPointF(x, y), QPointF(x - 2.8, y + ln))
+        p.restore()
 
     # ---------- 自适应帧率 ----------
     def _anim_active(self):
@@ -2083,13 +2301,18 @@ class CatClock(QWidget):
         # 半身模式：按状态决定手上的道具
         body = bool(self.cfg.get("body", True))
         prop = self._prop_now()
-        draw_cat(p, ccx + shake, ccy, cs, self.char_colors(),
+        # E3：鼠标停在猫身上时轻微抬头（配合爪型光标，像在看你）
+        lift = -cs * 0.025 if self.hover_cat else 0.0
+        draw_cat(p, ccx + shake, ccy + lift, cs, self.char_colors(),
                  blink=(self.blink_t < 0.18 or meowing) and not still,
                  excited=excited, sleepy=sleepy,
                  scared=thunder or too_hot, look=look, action=action,
                  action_k=action_k, tail_phase=tail_phase, t=self.t0, dim25=dim25,
                  pet_k=self.meow_t if self.meow_t < 1.0 else None, ear_tw=ear_tw,
                  body=body, prop=prop, hat=self._effective_hat(), acc=self._effective_acc())
+
+        # E1：面板天气氛围（雨雪落在面板上，盖住猫但压在文字之下）
+        self._draw_weather_fx(p, W, H, st)
 
         # 天气小图标（右上角）
         if self.weather and not mini:
