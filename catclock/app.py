@@ -62,8 +62,9 @@ WM_HOTKEY = 0x0312
 
 class CatClock(QWidget):
     W = 272
-    BUB_TOP = 0           # 0 = 气泡回到右侧文字区（v39 布局）；>0 = 飘在猫头顶上方
-    H_FULL = 142          # 右侧语录气泡 + 发薪日 + 进度条仍能完整落在面板内
+    BUB_TOP = 0           # 0 = 语录文字回到右侧文字区（v39 布局）；>0 = 飘在猫头顶上方
+    BUBBLE_STYLE = "none"  # none=无框纯文字 / auto=按情绪切形状 / capsule、round、heart、drop、burst
+    H_FULL = 134          # 无框语录（最多两行）+ 发薪日 + 进度条都能落在面板内
     H_MINI = 76           # 迷你模式不显示气泡
 
     def __init__(self):
@@ -1464,8 +1465,10 @@ class CatClock(QWidget):
 
     # ---- 气泡形状 ----
     def _bubble_shape(self, kind, excited=False):
-        """B1：按消息类型自动选形状。默认走最干净的圆角泡，
-        只有喝水(水滴) / 摸猫(心形) / 快下班(爆炸框) 才换异形。"""
+        """B1：按消息类型自动选形状。喝水(水滴) / 摸猫(心形) / 快下班(爆炸框)。
+        BUBBLE_STYLE 设为其它值（如 none）时该项全局覆盖。"""
+        if self.BUBBLE_STYLE != "auto":
+            return self.BUBBLE_STYLE
         if kind == "hydrate":
             return "drop"
         if kind == "meow":
@@ -1560,6 +1563,8 @@ class CatClock(QWidget):
             pad_x, pad_y, max_lines = 15, 9, 2
         elif shape in ("cloud", "think"):
             pad_x, pad_y, max_lines = 13, 5, 2
+        elif shape == "none":
+            pad_x, pad_y, max_lines = 0, 0, 2       # 无框：只画文字，不带背景
         else:
             pad_x, pad_y, max_lines = 10, 4, 2
         max_line_w = max(28, int(max_w) - pad_x * 2)
@@ -1582,6 +1587,15 @@ class CatClock(QWidget):
         if bottom is not None:
             y = max(1.0, bottom - bh)       # 气泡区压窄后，超高气泡贴顶而不越界
         p.setOpacity(max(0.0, min(1.0, alpha / 255.0)))
+
+        if shape == "none":                 # 无气泡：文字直接落在面板上，最不抢戏
+            p.setPen(QColor(st["sub"]))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            for i, ln in enumerate(lines):
+                p.drawText(QRectF(x, y + i * lh, bw, lh),
+                           Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, ln)
+            p.restore()
+            return bw, bh
 
         # 配色随主题走：浅色面板 → 奶白底 + 主题粉细边；深色面板 → 半透明白
         dark = sum(st["panel0"][:3]) / 3.0 < 128
