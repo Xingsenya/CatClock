@@ -29,6 +29,22 @@ def _ease_out(t):
     return 1.0 - (1.0 - t) * (1.0 - t)
 
 
+def _lod(s):
+    """细节层级（A7）：小尺寸自动减细节，避免线条挤成一团。
+    0 = 最小尺寸（只留主结构）/ 1 = 常规 / 2 = 放大后的完整细节"""
+    return 0 if s < 72 else (1 if s < 88 else 2)
+
+
+def _line(color, w, join=True):
+    """统一线条（A1）：圆头圆角 + 统一下限，替代各处散落的 max(1.0, s*k)。"""
+    pen = QPen(color if isinstance(color, QColor) else QColor(color),
+               max(0.7, float(w)))
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    if join:
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    return pen
+
+
 def _draw_paw(p, x, y, s, colors, outline, r):
     """标准掌心朝上的猫爪（局部标准方向：肉垫在 y- 侧）。由 _draw_hand 统一旋转。"""
     p.setPen(outline)
@@ -77,9 +93,10 @@ def _draw_hand(p, x, y, s, colors, outline, kind="paw", palm_nx=0, palm_ny=1):
     p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
     wr_w = s * 0.10
+    lw = outline.widthF() if isinstance(outline, QPen) else max(0.9, s * 0.017)
     base_col = _mix(colors["fur_l"], "#FFFFFF", 0.06)
     pad_col = colors.get("nose") or colors.get("ear_in") or "#E8A3A3"
-    detail = 0 if s < 120 else (1 if s < 200 else 2)
+    detail = _lod(s)          # A7：按实际绘制尺寸分级（原阈值 120/200 永远取不到）
 
     # 腕球：与手臂末端同色，盖住手臂-手掌接缝
     p.setPen(Qt.PenStyle.NoPen)
@@ -114,8 +131,7 @@ def _draw_hand(p, x, y, s, colors, outline, kind="paw", palm_nx=0, palm_ny=1):
         p.drawRoundedRect(QRectF(hx - r * 0.74, hy + r * 0.18,
                                  r * 1.48, r * 1.16), r * 0.38, r * 0.38)
         if detail >= 1:
-            p.setPen(QPen(_mix(hc, "#000000", 0.30), max(1.0, s * 0.012),
-                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.setPen(_line(_mix(hc, "#000000", 0.30), lw * 0.80))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawLine(QPointF(hx, hy + r * 0.30), QPointF(hx, hy + r * 0.92))
     elif kind == "cloven":                              # 猪：两瓣蹄
@@ -130,8 +146,7 @@ def _draw_hand(p, x, y, s, colors, outline, kind="paw", palm_nx=0, palm_ny=1):
         p.setBrush(QColor(pc))
         p.drawEllipse(QRectF(hx - r * 0.82, hy - r * 0.72, r * 1.64, r * 1.44))
         if detail >= 1:
-            p.setPen(QPen(_mix(pc, "#6B4A33", 0.45), max(1.0, s * 0.013),
-                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.setPen(_line(_mix(pc, "#6B4A33", 0.45), lw * 0.82))
             p.setBrush(Qt.BrushStyle.NoBrush)
             for dx in (-0.50, -0.17, 0.17, 0.50):
                 p.drawLine(QPointF(hx + dx * r, hy - r * 0.60),
@@ -146,8 +161,7 @@ def _draw_hand(p, x, y, s, colors, outline, kind="paw", palm_nx=0, palm_ny=1):
         wp.closeSubpath()
         p.drawPath(wp)
         if detail >= 1:
-            p.setPen(QPen(QColor(wc), max(1.0, s * 0.012),
-                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.setPen(_line(QColor(wc), lw * 0.80))
             p.setBrush(Qt.BrushStyle.NoBrush)
             for k in (0.20, 0.54, 0.88):
                 p.drawLine(QPointF(hx - r * 0.08 + r * k * 0.22,
@@ -171,8 +185,7 @@ def _draw_hand(p, x, y, s, colors, outline, kind="paw", palm_nx=0, palm_ny=1):
         p.drawEllipse(QRectF(hx - r * 0.74, hy - r * 0.70,
                              r * 1.48, r * 1.40))
         if detail >= 1:
-            p.setPen(QPen(outline.color(), max(1.2, s * 0.015),
-                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.setPen(_line(outline.color(), lw * 0.92))
             p.setBrush(Qt.BrushStyle.NoBrush)
             for dx in (-0.52, -0.17, 0.17, 0.52):
                 p.drawLine(QPointF(hx + dx * r * 0.82, hy - r * 0.28),
@@ -271,6 +284,7 @@ def _draw_hat(p, cx, cy, s, colors, outline, style, head_top, hw=0.88, t=0.0):
     if style == "none":
         return
     top = head_top
+    lw = outline.widthF() if isinstance(outline, QPen) else max(0.9, s * 0.017)
     p.setPen(outline)
     if style == "cap":
         # 棒球帽：圆顶 + 前挑帽檐 + 顶纽
@@ -410,13 +424,13 @@ def _draw_hat(p, cx, cy, s, colors, outline, style, head_top, hw=0.88, t=0.0):
         dome.closeSubpath()
         p.drawPath(dome)
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(QColor(gold), max(1.5, s * 0.02)))
+        p.setPen(_line(QColor(gold), lw * 1.18))
         p.drawEllipse(QRectF(cx - 0.38 * s, top + 0.05 * s, 0.76 * s, 0.12 * s))
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(gold))
         p.drawEllipse(QRectF(cx - 0.085 * s, top - 0.22 * s, 0.17 * s, 0.15 * s))
         p.setFont(QFont("Microsoft YaHei", int(s * 0.13), QFont.Weight.Bold))
-        p.setPen(QPen(QColor(gold), max(1.0, s * 0.012)))
+        p.setPen(_line(QColor(gold), lw * 0.71))
         p.drawText(QRectF(cx - 0.22 * s, top - 0.03 * s, 0.44 * s, 0.20 * s),
                    Qt.AlignmentFlag.AlignCenter, "福")
     elif style == "witch":
@@ -447,9 +461,10 @@ def _draw_acc(p, cx, cy, s, colors, outline, style, head_top):
     if not style or style == "auto" or style == "none":
         return
     line_c = colors.get("line", "#4A3B33")
+    lw = outline.widthF() if isinstance(outline, QPen) else max(0.9, s * 0.017)
     if style == "glasses":
         r = s * 0.18
-        p.setPen(QPen(QColor(line_c), max(1.0, s * 0.014)))
+        p.setPen(_line(QColor(line_c), lw * 0.82))
         p.setBrush(Qt.BrushStyle.NoBrush)
         for sign in (-1, 1):
             p.drawEllipse(QRectF(cx + sign * 0.175 * s - r,
@@ -473,7 +488,7 @@ def _draw_acc(p, cx, cy, s, colors, outline, style, head_top):
             p.drawEllipse(QRectF(cx + sign * 0.44 * s - s * 0.09,
                                  cy - 0.05 * s - s * 0.14,
                                  s * 0.18, s * 0.28))
-        p.setPen(QPen(QColor(cup), max(1.5, s * 0.02)))
+        p.setPen(_line(QColor(cup), lw * 1.18))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawArc(QRectF(cx - 0.44 * s, cy - 0.42 * s, 0.88 * s, 0.50 * s),
                   0, 180 * 16)
@@ -502,6 +517,7 @@ def _draw_acc(p, cx, cy, s, colors, outline, style, head_top):
 def _draw_prop(p, prop, cx, cy, s, colors, side=None, wx=None, wy=None):
     """画半身状态道具。双手道具用 cx,cy；单手道具用 wx,wy 并参考 side('L'/'R')。"""
     line_c = colors.get("line", "#4A3B33")
+    lw = max(0.9, s * 0.017)          # 与主描边同体系（A1）
     if prop == "coffee":
         bw, bh = s * 0.32, s * 0.24
         bx, by = cx - bw / 2, cy + s * 0.76
@@ -514,35 +530,33 @@ def _draw_prop(p, prop, cx, cy, s, colors, side=None, wx=None, wy=None):
                              bw - s * 0.04, s * 0.08))
         # 把手
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(QColor("#D4CFC7"), max(1.5, s * 0.018),
-                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setPen(_line(QColor("#D4CFC7"), lw * 1.06))
         p.drawArc(QRectF(bx + bw - s * 0.03, by + s * 0.04,
                          s * 0.10, s * 0.14), 0, 180 * 16)
         # 热气
         steam = QColor("#FFFFFF")
         steam.setAlpha(120)
-        p.setPen(QPen(steam, max(1.0, s * 0.012),
-                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setPen(_line(steam, lw * 0.71))
         for dx in (-s * 0.06, 0, s * 0.06):
             p.drawArc(QRectF(cx + dx - s * 0.03, by - s * 0.14,
                              s * 0.06, s * 0.10), 0, 180 * 16)
     elif prop == "coin":
         r = s * 0.14
         x, y = cx, cy + s * 0.76
-        p.setPen(QPen(QColor("#B8860B"), max(1.2, s * 0.014)))
+        p.setPen(_line(QColor("#B8860B"), lw * 0.82))
         p.setBrush(QColor("#FFD700"))
         p.drawEllipse(QRectF(x - r, y - r, r * 2, r * 2))
         p.setBrush(QColor("#F4C430"))
         p.drawEllipse(QRectF(x - r * 0.78, y - r * 0.78,
                              r * 1.56, r * 1.56))
-        p.setPen(QPen(QColor("#B8860B"), max(1.0, s * 0.012)))
+        p.setPen(_line(QColor("#B8860B"), lw * 0.71))
         p.setFont(QFont("Segoe UI", int(s * 0.14), QFont.Weight.Bold))
         p.drawText(QRectF(x - r, y - r, r * 2, r * 2),
                    Qt.AlignmentFlag.AlignCenter, "¥")
     elif prop == "heart":
         sz = s * 0.30
         y = cy + s * 0.78
-        p.setPen(QPen(QColor("#C9426B"), max(1.2, s * 0.014)))
+        p.setPen(_line(QColor("#C9426B"), lw * 0.82))
         p.setBrush(QColor("#F06B8A"))
         p.drawPath(heart_path(cx, y, sz))
         p.setPen(Qt.PenStyle.NoPen)
@@ -555,7 +569,7 @@ def _draw_prop(p, prop, cx, cy, s, colors, side=None, wx=None, wy=None):
         bx = wx - bw * (0.2 if side == "R" else 0.8)
         by = wy + s * 0.06
         bag_c = colors.get("bag", "#C49A6C")
-        p.setPen(QPen(QColor(line_c), max(1.0, s * 0.014)))
+        p.setPen(_line(QColor(line_c), lw * 0.82))
         p.setBrush(QColor(bag_c))
         body = QPainterPath()
         body.moveTo(bx + bw * 0.15, by)
@@ -565,8 +579,7 @@ def _draw_prop(p, prop, cx, cy, s, colors, side=None, wx=None, wy=None):
         body.closeSubpath()
         p.drawPath(body)
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(QColor(line_c), max(1.2, s * 0.016),
-                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setPen(_line(QColor(line_c), lw * 0.94))
         p.drawArc(QRectF(bx + bw * 0.25, by - s * 0.08,
                          bw * 0.50, s * 0.12), 0, 180 * 16)
     elif prop == "fan":
@@ -575,15 +588,14 @@ def _draw_prop(p, prop, cx, cy, s, colors, side=None, wx=None, wy=None):
         fx = wx + (s * 0.08 if side == "R" else -s * 0.08)
         fy = wy - s * 0.12
         r = s * 0.18
-        p.setPen(QPen(QColor(line_c), max(1.0, s * 0.014)))
+        p.setPen(_line(QColor(line_c), lw * 0.82))
         p.setBrush(QColor("#F8C3CD"))
         # 扇面：半扇形
         start = -150 * 16 if side == "R" else -30 * 16
         span = 120 * 16 if side == "R" else -120 * 16
         p.drawPie(QRectF(fx - r, fy - r * 0.55, r * 2, r * 1.45), start, span)
         # 扇骨
-        p.setPen(QPen(_mix(line_c, "#FFFFFF", 0.35), max(0.8, s * 0.010),
-                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setPen(_line(_mix(line_c, "#FFFFFF", 0.35), lw * 0.59))
         base_angs = (-160, -130, -100) if side == "R" else (-80, -50, -20)
         for ang in base_angs:
             rad = math.radians(ang)
@@ -591,24 +603,21 @@ def _draw_prop(p, prop, cx, cy, s, colors, side=None, wx=None, wy=None):
                        QPointF(fx + math.cos(rad) * r * 0.9,
                                fy + math.sin(rad) * r * 0.9))
         # 柄
-        p.setPen(QPen(QColor(line_c), max(1.5, s * 0.018),
-                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setPen(_line(QColor(line_c), lw * 1.06))
         p.drawLine(QPointF(fx, fy), QPointF(wx, wy))
     elif prop == "umbrella":
         if wx is None or wy is None:
             return
         ux, uy = cx, cy - s * 0.38
         r = s * 0.32
-        p.setPen(QPen(QColor(line_c), max(1.0, s * 0.014)))
+        p.setPen(_line(QColor(line_c), lw * 0.82))
         p.setBrush(QColor("#F8C3CD"))
         p.drawEllipse(QRectF(ux - r, uy - r * 0.40, r * 2, r * 1.20))
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(QColor("#E89AAA"), max(1.2, s * 0.016),
-                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setPen(_line(QColor("#E89AAA"), lw * 0.94))
         p.drawArc(QRectF(ux - r * 0.92, uy + r * 0.12,
                          r * 1.84, r * 0.50), 0, 180 * 16)
-        p.setPen(QPen(QColor(line_c), max(1.5, s * 0.018),
-                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setPen(_line(QColor(line_c), lw * 1.06))
         p.drawLine(QPointF(ux, uy + r * 0.18), QPointF(wx, wy))
     elif prop == "scarf":
         # 围巾绕脖子，暖红色
@@ -664,12 +673,13 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     if action == "tail_wag" and tail_phase is not None:
         tail_phase = _ease(action_k) * 8.0 * math.pi
 
-    lw = max(1.0, s * 0.016)
+    lw = max(0.9, s * 0.017)                  # A1：主描边，细节线全部由它派生
     dark = _q_luma(colors["fur"]) < 0.42      # 深毛色：描边向浅色靠拢，避免糊成一团
-    line_c = _mix(colors["line"], colors["fur_l"], 0.72) if dark else QColor(colors["line"])
-    outline = QPen(line_c, lw)
-    outline.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-    outline.setCapStyle(Qt.PenCapStyle.RoundCap)
+    # A3：暗色角色描边只混 52%（原 72% 太浅，轮廓会浮起来发糊）
+    line_c = _mix(colors["line"], colors["fur_l"], 0.52) if dark else QColor(colors["line"])
+    outline = _line(line_c, lw)
+    lod = _lod(s)                             # A7：细节层级
+    rim = float(colors.get("rim", 1.0))       # A2/A3：暗色角色加强边缘光提升可读性
 
     # ---- 2.5D：落地软阴影（不参与倾斜） ----
     if dim25:
@@ -715,7 +725,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             p.setBrush(ball_c)
             p.drawEllipse(QRectF(px - pr, py - pr, 2 * pr, 2 * pr))
             p.setPen(Qt.PenStyle.NoPen)        # 边缘小绒毛
-            for i in range(7):
+            for i in range(5 if lod == 0 else 7):       # A7：小尺寸少两撮，避免糊
                 a = math.radians(i * 51 + 12)
                 p.drawEllipse(QRectF(px + math.cos(a) * pr * 0.86 - pr * 0.33,
                                      py + math.sin(a) * pr * 0.86 - pr * 0.33,
@@ -792,7 +802,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
                 L = s * (0.30 if i in (1, 2) else 0.24)
                 p.drawLine(QPointF(bx, by - 0.02 * s),
                            QPointF(bx + math.cos(a) * L, by - math.sin(a) * L - 0.02 * s))
-            p.setPen(QPen(QColor("#C43C38"), max(1.0, s * 0.020)))
+            p.setPen(_line(QColor("#C43C38"), lw * 1.18))
             p.drawLine(QPointF(bx, by - 0.02 * s),
                        QPointF(bx + math.cos(math.radians(128)) * s * 0.30,
                                by - math.sin(math.radians(128)) * s * 0.30 - 0.02 * s))
@@ -992,9 +1002,8 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             p.drawEllipse(QRectF(cx + sign * 0.42 * s - 0.085 * s, cy - 0.14 * s,
                                  0.17 * s, 0.24 * s))
             # 羊毛绒边：耳廓外沿三个小弧
-            p.setPen(QPen(QColor(colors["wool"] if colors.get("wool") else colors["fur_l"]),
-                          max(1.0, s * 0.014), Qt.PenStyle.SolidLine,
-                          Qt.PenCapStyle.RoundCap))
+            p.setPen(_line(QColor(colors["wool"] if colors.get("wool") else colors["fur_l"]),
+                           lw * 0.82))
             p.setBrush(Qt.BrushStyle.NoBrush)
             for k in (0.0, 0.35, 0.70):
                 p.drawArc(QRectF(cx + sign * (0.36 + k * 0.16) * s - 0.09 * s,
@@ -1106,7 +1115,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         p.drawEllipse(QRectF(cx - belly_w * s, by0 + 0.10 * s,
                              2 * belly_w * s, belly_h * s))
         # 蛇 / 龙：鳞纹（仅在身体 clip 内）
-        if shape in ("snake", "dragon"):
+        if shape in ("snake", "dragon") and lod >= 1:   # A7：小尺寸省略鳞纹
             p.setClipPath(bp)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(colors["fur_d"]))
@@ -1123,6 +1132,18 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         shade.setAlpha(90)
         p.setBrush(shade)
         p.drawEllipse(QRectF(cx - 0.50 * s, by1 - 0.30 * s, 1.00 * s, 0.44 * s))
+        p.setClipping(False)
+        # A2：身体左上受光（与头部同向），避免身体像一块平涂色块
+        p.setClipPath(bp)
+        a0 = int(30 * rim)
+        bgr = QRadialGradient(cx - 0.24 * s, by0 + 0.14 * s, 0.74 * s)
+        bgr.setColorAt(0, QColor(255, 255, 255, a0))
+        bgr.setColorAt(0.60, QColor(255, 255, 255, int(a0 * 0.34)))
+        bgr.setColorAt(1, QColor(255, 255, 255, 0))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(bgr)
+        p.drawRect(QRectF(cx - bw / 2 - 0.1 * s, by0 - 0.1 * s,
+                          bw + 0.2 * s, (by1 - by0) + 0.3 * s))
         p.setClipping(False)
 
     # ---- 头 ----
@@ -1191,8 +1212,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         p.drawPath(mane)
         # 鬃毛纹理
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(_mix(colors["mane"], "#000000", 0.25), max(1.0, s * 0.015),
-                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setPen(_line(_mix(colors["mane"], "#000000", 0.25), lw * 0.90))
         for dx in (-0.12, -0.04, 0.04, 0.12):
             p.drawLine(QPointF(cx + dx * s, cy - 0.52 * s),
                        QPointF(cx + dx * s, cy - 0.40 * s))
@@ -1215,8 +1235,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         tiger_clip.addEllipse(head_rect)
         p.setClipPath(tiger_clip)
         tc = _mix(colors["tabby_c"], "#3E2A1A", 0.35)
-        p.setPen(QPen(QColor(tc), max(2.2, s * 0.038),
-                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setPen(_line(QColor(tc), lw * 2.20))
         p.setBrush(Qt.BrushStyle.NoBrush)
         # 额头王字：三横一竖
         p.drawLine(QPointF(cx, cy - 0.38 * s), QPointF(cx, cy - 0.26 * s))
@@ -1269,6 +1288,22 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     chin.setAlpha(130)
     p.setBrush(chin)
     p.drawEllipse(QRectF(cx - 0.32 * s, cy + 0.24 * s, 0.64 * s, 0.30 * s))
+
+    # ---- A2：统一光照（左上受光），让头有体积而不是平涂色块 ----
+    a0 = int(36 * rim)
+    rg = QRadialGradient(cx - 0.20 * s, head_top + 0.16 * s, 0.78 * s)
+    rg.setColorAt(0, QColor(255, 255, 255, a0))
+    rg.setColorAt(0.55, QColor(255, 255, 255, int(a0 * 0.38)))
+    rg.setColorAt(1, QColor(255, 255, 255, 0))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(rg)
+    p.drawEllipse(head_rect)
+    if lod >= 1:
+        # 上缘内高光（rim light）：暗色角色靠它从背景里「浮」出来
+        ins = lw * 0.85
+        p.setPen(_line(QColor(255, 255, 255, int(58 * rim)), lw * 0.85, join=False))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(head_rect.adjusted(ins, ins * 0.55, -ins, -ins * 1.75))
     p.setClipping(False)
 
     # ---- 腮红 ----
@@ -1287,16 +1322,17 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
 
     # ---- 胡须（猫/鼠/兔/虎/龙；深毛色用浅须，浅毛色用经典橘须） ----
     if shape in ("cat", "rat", "rabbit", "tiger", "dragon"):
-        hp = QPen(QColor("#CFC9DC") if dark else QColor("#E0AC76"), max(1.0, s * 0.012))
-        hp.setCapStyle(Qt.PenCapStyle.RoundCap)
+        hp = _line(QColor("#CFC9DC") if dark else QColor("#E0AC76"), lw * 0.78)
         p.setPen(hp)
+        dys = (-0.03, 0.11) if lod == 0 else (-0.03, 0.04, 0.11)   # A7：小尺寸少一根
+        mid = (len(dys) - 1) / 2.0
         for sign in (-1, 1):
-            for k, dy in enumerate((-0.03, 0.04, 0.11)):
+            for k, dy in enumerate(dys):
                 y = cy + dy * s
                 x0 = cx + sign * 0.17 * s
                 p.drawLine(
                     QPointF(x0, y),
-                    QPointF(x0 + sign * 0.26 * s, y + (k - 1) * s * 0.030),
+                    QPointF(x0 + sign * 0.26 * s, y + (k - mid) * s * 0.045),
                 )
 
     # ---- 眼睛（按物种差异化：位置 / 大小 / 竖瞳） ----
@@ -1318,12 +1354,11 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
                 else:
                     star.lineTo(x, y)
             star.closeSubpath()
-            p.setPen(QPen(QColor("#E8930C"), max(1.0, s * 0.014)))
+            p.setPen(_line(QColor("#E8930C"), lw * 0.85))
             p.setBrush(QColor("#FFD34D"))
             p.drawPath(star)
         elif blink or sleepy:
-            p.setPen(QPen(QColor(colors["eye"]), max(1.6, s * 0.030), Qt.PenStyle.SolidLine,
-                          Qt.PenCapStyle.RoundCap))
+            p.setPen(_line(QColor(colors["eye"]), lw * 1.85))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawArc(QRectF(ex - ew2 * 1.25, eye_y - ehh * 0.29,
                              ew2 * 2.50, ehh * 0.58), 180 * 16, 180 * 16)
@@ -1340,7 +1375,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
                 p.setBrush(g)
             p.drawEllipse(QRectF(ex - ew2, eye_y - ehh / 2, 2 * ew2, ehh))
             # 虹膜外圈细眼线
-            p.setPen(QPen(_mix(colors["eye"], "#14100E", 0.55), max(1.0, s * 0.012)))
+            p.setPen(_line(_mix(colors["eye"], "#14100E", 0.55), lw * 0.72, join=False))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawEllipse(QRectF(ex - ew2, eye_y - ehh / 2, 2 * ew2, ehh))
             p.setPen(Qt.PenStyle.NoPen)
@@ -1363,12 +1398,12 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
                 p.setBrush(QColor("#FFFFFF"))
                 p.drawEllipse(QRectF(ex + ew2 * 0.12 + lx, eye_y - ehh * 0.33 + ly,
                                      ew2 * 0.76, ehh * 0.29))
-                p.drawEllipse(QRectF(ex - ew2 * 0.70 + lx, eye_y + ehh * 0.10 + ly,
-                                     ew2 * 0.35, ehh * 0.13))
+                if lod >= 1:              # A7：小尺寸只留主高光，避免眼睛糊成一团
+                    p.drawEllipse(QRectF(ex - ew2 * 0.70 + lx, eye_y + ehh * 0.10 + ly,
+                                         ew2 * 0.35, ehh * 0.13))
 
     # ---- 鼻子 & 嘴（按物种分形状；打哈欠统一 O 形嘴） ----
-    mouth_pen = QPen(line_c, max(1.3, s * 0.022), Qt.PenStyle.SolidLine,
-                     Qt.PenCapStyle.RoundCap)
+    mouth_pen = _line(line_c, lw * 1.30)
     if action == "yawn":
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor("#7A4A3A"))
@@ -1405,7 +1440,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor("#F2909C"))
         p.drawEllipse(QRectF(cx - 0.055 * s + wag, cy + 0.235 * s, 0.11 * s, 0.13 * s))
-        p.setPen(QPen(QColor("#D86A7A"), max(1.0, s * 0.012)))
+        p.setPen(_line(QColor("#D86A7A"), lw * 0.78))
         p.drawLine(QPointF(cx + wag, cy + 0.25 * s), QPointF(cx + wag, cy + 0.33 * s))
     elif shape == "ox":                  # 牛：宽鼻 + 鼻孔
         p.setPen(outline)
@@ -1425,7 +1460,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         p.drawRoundedRect(QRectF(cx - 0.155 * s, cy + 0.19 * s, 0.31 * s, 0.15 * s),
                           0.07 * s, 0.07 * s)
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(line_c, max(1.2, s * 0.020)))
+        p.setPen(_line(line_c, lw * 1.20))
         for sign in (-1, 1):
             p.drawEllipse(QRectF(cx + sign * 0.062 * s - 0.028 * s, cy + 0.225 * s,
                                  0.056 * s, 0.070 * s))
@@ -1441,7 +1476,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         nose.closeSubpath()
         p.drawPath(nose)
         p.setBrush(QColor("#FFFFFF"))
-        p.setPen(QPen(line_c, max(1.0, s * 0.014)))
+        p.setPen(_line(line_c, lw * 0.85))
         p.drawRoundedRect(QRectF(cx - 0.052 * s, cy + 0.195 * s, 0.104 * s, 0.085 * s),
                           0.02 * s, 0.02 * s)
         p.drawLine(QPointF(cx, cy + 0.195 * s), QPointF(cx, cy + 0.28 * s))
@@ -1469,8 +1504,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawArc(QRectF(cx - 0.07 * s, cy + 0.10 * s, 0.14 * s, 0.09 * s), 200 * 16, 140 * 16)
         if (t % 6.0) < 0.9:
-            p.setPen(QPen(QColor("#E85A6A"), max(1.2, s * 0.016),
-                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.setPen(_line(QColor("#E85A6A"), lw * 0.95))
             ty = cy + 0.19 * s
             p.drawLine(QPointF(cx, ty), QPointF(cx, ty + 0.07 * s))
             p.drawLine(QPointF(cx, ty + 0.07 * s), QPointF(cx - 0.035 * s, ty + 0.105 * s))

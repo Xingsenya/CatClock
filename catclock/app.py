@@ -147,6 +147,13 @@ class CatClock(QWidget):
         self._build_menu()
         self._build_tray()
         self.apply_app_style()
+        # B4：监听屏幕/DPI变化，避免拔插显示器后窗口丢失
+        try:
+            self.windowHandle().screenChanged.connect(self._on_screen_changed)
+            QApplication.screenAdded.connect(self._on_screen_added)
+            QApplication.screenRemoved.connect(self._on_screen_removed)
+        except Exception:
+            pass
         self.last_phase = self._status()[0]
 
         # 天气：启动 1.5s 后首拉，之后每 30 分钟刷新
@@ -326,6 +333,7 @@ class CatClock(QWidget):
         save_cfg(self.cfg)
         self.tray.setIcon(make_icon(64, name))
         self.setWindowIcon(make_icon(64, name))
+        self._update_tray_tooltip()
         self.update()
 
     def set_style(self, name):
@@ -355,6 +363,27 @@ class CatClock(QWidget):
         x = min(max(self.x(), g.left()), g.right() - self.width())
         y = min(max(self.y(), g.top()), g.bottom() - self.height())
         self.move(x, y)
+
+    # B4：多屏 / DPI 变化时防止窗口飘到不可见区域
+    def _on_screen_changed(self, screen):
+        if screen:
+            self._guard_visible()
+
+    def _on_screen_added(self, _=None):
+        self._guard_visible()
+
+    def _on_screen_removed(self, _=None):
+        self._guard_visible()
+
+    def _guard_visible(self):
+        try:
+            g = self._screen().availableGeometry()
+            if not g.intersects(self.frameGeometry()):
+                screen = QApplication.primaryScreen().availableGeometry()
+                self.move(screen.right() - self.width() - 28,
+                          screen.bottom() - self.height() - 60)
+        except Exception:
+            pass
 
     # ---------- 菜单 ----------
     def _build_menu(self):
@@ -507,26 +536,44 @@ class CatClock(QWidget):
 
     def _build_tray(self):
         self.tray = QSystemTrayIcon(make_icon(64, self.cfg["char"]), self)
-        self.tray.setToolTip("%s · %s" % (APP_NAME, self.cfg["char"]))
+        self._update_tray_tooltip()
         tray_menu = QMenu()
+        self.act_show = QAction("显示 / 隐藏", self)
+        self.act_show.triggered.connect(self._show_or_hide)
+        tray_menu.addAction(self.act_show)
+        tray_menu.addSeparator()
         tray_menu.addAction(self.char_menu.menuAction())
         tray_menu.addAction(self.style_menu.menuAction())
+        tray_menu.addAction(self.hat_menu.menuAction())
         tray_menu.addSeparator()
         tray_menu.addAction(self.act_settings)
         tray_menu.addAction(self.act_mini)
         tray_menu.addAction(self.act_boss)
         tray_menu.addAction(self.act_mood)
+        tray_menu.addAction(self.act_stats)
         tray_menu.addAction(self.size_menu.menuAction())
-        tray_menu.addAction(self.act_end)
         tray_menu.addSeparator()
-        tray_menu.addAction(self.act_top)
         tray_menu.addAction(self.act_auto)
+        tray_menu.addAction(self.act_update)
+        tray_menu.addAction(self.act_about)
         tray_menu.addSeparator()
         tray_menu.addAction(self.act_quit)
         self.tray.setContextMenu(tray_menu)
-        self.tray.activated.connect(lambda r: self.show_and_raise()
-                                    if r == QSystemTrayIcon.ActivationReason.Trigger else None)
+        self.tray.activated.connect(self._tray_activated)
         self.tray.show()
+
+    def _update_tray_tooltip(self):
+        self.tray.setToolTip("%s v%s · %s" % (APP_NAME, __version__, self.cfg["char"]))
+
+    def _tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self._show_or_hide()
+
+    def _show_or_hide(self):
+        if self.isVisible():
+            self.hide()
+        else:
+            self.show_and_raise()
 
     # ---------- 菜单动作 ----------
     def warn(self, text):
@@ -712,7 +759,21 @@ class CatClock(QWidget):
 
     # ---------- 分组设置窗口 ----------
     def open_settings(self):
-        dlg = S.SettingsDialog(self.cfg, self)
+        snap = dict(self.cfg)
+
+        def preview(patch):
+            old = dict(self.cfg)
+            self.cfg.update(patch)
+            save_cfg(self.cfg)
+            self._apply_cfg(old)
+
+        def cancel():
+            old = dict(self.cfg)
+            self.cfg.update(snap)
+            save_cfg(self.cfg)
+            self._apply_cfg(old)
+
+        dlg = S.SettingsDialog(self.cfg, self, on_preview=preview, on_cancel=cancel)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         new = dlg.result()
@@ -1833,7 +1894,23 @@ class CatClock(QWidget):
         p.end()
 
 
+def _excepthook(exc_type, exc_value, exc_tb):
+    """B3：未捕获异常写日志而不是直接崩掉，便于用户排查。"""
+    try:
+        import traceback
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        log = os.path.join(CONFIG_DIR, "crash.log")
+        with open(log, "a", encoding="utf-8") as f:
+            f.write("%s %s: %s\n" % (datetime.now().isoformat(),
+                                     exc_type.__name__, exc_value))
+            traceback.print_exception(exc_type, exc_value, exc_tb, file=f)
+            f.write("\n")
+    except Exception:
+        pass
+
+
 def main():
+    sys.excepthook = _excepthook
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)

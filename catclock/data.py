@@ -62,6 +62,7 @@ CHARACTERS = {
         fur="#4C4653", fur_d="#3A3542", fur_l="#7E7688", line="#2F2B36",
         ear_in="#C8B8CC", nose="#E88FA0", eye="#FDD45E",
         tabby=False, patches=(), ears=(None, None),
+        rim=1.9,          # A3：暗色角色加强边缘光，缩略图下五官才看得清
     ),
     "三花猫": dict(
         fur="#FFF7EE", fur_d="#F5E9DA", fur_l="#FFFCF6", line="#DCC3AA",
@@ -87,7 +88,7 @@ CHARACTERS = {
         fur="#F6EDE2", fur_d="#EADFD2", fur_l="#FBF6EE", line="#C9B8A8",
         ear_in="#D8B8AC", nose="#C9808A", eye="#7FB3D5",
         tabby=False, patches=(
-            dict(x=-0.16, y=-0.44, w=0.34, h=0.38, c="#5C463A", feather=True),   # 面部重点色
+            dict(x=-0.16, y=-0.42, w=0.30, h=0.34, c="#5C463A", feather=True),   # 面部重点色
         ), ears=("#5C463A", "#5C463A"),
     ),
     "虎斑猫": dict(
@@ -100,9 +101,11 @@ CHARACTERS = {
         fur="#FFFFFF", fur_d="#EFEFEF", fur_l="#FFFFFF", line="#3A3A3A",
         ear_in="#3A3A3A", nose="#3A3A3A", eye="#F5F5F5", pupil="#2A2A2A",
         tabby=False, patches=(
-            dict(x=-0.285, y=-0.14, w=0.20, h=0.22, c="#5C5C5C"),  # 左眼圈
-            dict(x=0.085, y=-0.14, w=0.20, h=0.22, c="#5C5C5C"),   # 右眼圈
+            # A3：眼圈调浅 + 羽化，避免缩略图下像"黑眼圈"、高光过曝
+            dict(x=-0.285, y=-0.14, w=0.20, h=0.22, c="#6C6C74", feather=True),  # 左眼圈
+            dict(x=0.085, y=-0.14, w=0.20, h=0.22, c="#6C6C74", feather=True),   # 右眼圈
         ), ears=("#5C5C5C", "#5C5C5C"),
+        rim=0.75,
     ),
     # ==================== 十二生肖 ====================
     "鼠": dict(

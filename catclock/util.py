@@ -69,7 +69,16 @@ def load_cfg():
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 cfg.update(json.load(f))
     except Exception:
-        pass
+        # B3：配置损坏时备份旧文件，用默认配置继续运行
+        try:
+            bad = CONFIG_PATH + ".bad"
+            for i in range(1, 100):
+                if not os.path.exists(bad):
+                    break
+                bad = "%s.bad%d" % (CONFIG_PATH, i)
+            os.rename(CONFIG_PATH, bad)
+        except Exception:
+            pass
     if cfg["char"] not in CHARACTERS:
         cfg["char"] = "橘猫"
     if cfg["style"] not in STYLES:

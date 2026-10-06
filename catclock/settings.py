@@ -12,7 +12,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QGroupBox, QComboBox, QCheckBox, QLineEdit, QSpinBox, QLabel, QPushButton,
-    QMessageBox, QFileDialog,
+    QMessageBox, QFileDialog, QScrollArea, QFrame, QApplication,
 )
 
 from . import data as D
@@ -45,21 +45,28 @@ class SettingsDialog(QDialog):
 
     WEEK = ["一", "二", "三", "四", "五", "六", "日"]
 
-    def __init__(self, cfg, app=None, parent=None):
+    def __init__(self, cfg, app=None, parent=None, on_preview=None, on_cancel=None):
         super().__init__(parent or app)
         self.cfg = dict(cfg)
         self.app = app
+        self._preview_fn = on_preview
+        self._cancel_fn = on_cancel
+        self._snap = None
         self.setWindowTitle("CatClock 设置")
         self.setMinimumWidth(430)
+        # B1：设置窗口限制高度，小屏下自动出现滚动条
+        scr = QApplication.primaryScreen()
+        sh = scr.availableGeometry().height() if scr else 768
+        self.setMaximumHeight(int(sh * 0.88))
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
 
         self.tabs = QTabWidget(self)
-        self.tabs.addTab(self._tab_look(), "外观")
-        self.tabs.addTab(self._tab_time(), "时间")
-        self.tabs.addTab(self._tab_notify(), "通知")
-        self.tabs.addTab(self._tab_weather(), "天气")
-        self.tabs.addTab(self._tab_smart(), "智能")
-        self.tabs.addTab(self._tab_adv(), "高级")
+        self.tabs.addTab(self._scroll(self._tab_look()), "外观")
+        self.tabs.addTab(self._scroll(self._tab_time()), "时间")
+        self.tabs.addTab(self._scroll(self._tab_notify()), "通知")
+        self.tabs.addTab(self._scroll(self._tab_weather()), "天气")
+        self.tabs.addTab(self._scroll(self._tab_smart()), "智能")
+        self.tabs.addTab(self._scroll(self._tab_adv()), "高级")
 
         btns = QHBoxLayout()
         ok = QPushButton("确定")
@@ -67,6 +74,7 @@ class SettingsDialog(QDialog):
         ok.setDefault(True)
         ok.clicked.connect(self._on_ok)
         cancel.clicked.connect(self.reject)
+        self._connect_preview()
         btns.addStretch(1)
         btns.addWidget(ok)
         btns.addWidget(cancel)
@@ -74,6 +82,15 @@ class SettingsDialog(QDialog):
         root = QVBoxLayout(self)
         root.addWidget(self.tabs)
         root.addLayout(btns)
+
+    def _scroll(self, widget):
+        """B1：把标签页内容包在滚动区域里，避免 768 屏装不下智能页。"""
+        sa = QScrollArea(self)
+        sa.setWidgetResizable(True)
+        sa.setFrameShape(QFrame.Shape.NoFrame)
+        sa.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        sa.setWidget(widget)
+        return sa
 
     # ---------------------------------------------------------------- 外观
     def _tab_look(self):
@@ -346,6 +363,49 @@ class SettingsDialog(QDialog):
         v.addStretch(1)
         self._refresh_sense()
         return w
+
+    # ---------------------------------------------------------------- 实时预览（B2）
+    def _connect_preview(self):
+        """外观相关改动实时同步到挂件，取消时回滚。"""
+        if not self._preview_fn:
+            return
+        self.c_char.currentTextChanged.connect(self._emit_preview)
+        self.c_style.currentTextChanged.connect(self._emit_preview)
+        for w in (self.c_hat, self.c_acc, self.c_size):
+            w.currentIndexChanged.connect(self._emit_preview)
+        for w in (self.k_body, self.k_25d, self.k_mini, self.k_sec, self.k_top):
+            w.stateChanged.connect(self._emit_preview)
+
+    def _snapshot(self):
+        if self._snap is None:
+            self._snap = dict(self.cfg)
+
+    def _emit_preview(self):
+        if not self._preview_fn:
+            return
+        self._snapshot()
+        self._preview_fn(self._preview_delta())
+
+    def _preview_delta(self):
+        """只返回可安全实时预览的键（避免触发天气/注册表/位置重置）。"""
+        return {
+            "char": self.c_char.currentText(),
+            "style": self.c_style.currentText(),
+            "hat": self.c_hat.currentData(),
+            "acc": self.c_acc.currentData(),
+            "scale": float(self.c_size.currentData()),
+            "body": self.k_body.isChecked(),
+            "dim25": self.k_25d.isChecked(),
+            "mini": self.k_mini.isChecked(),
+            "show_sec": self.k_sec.isChecked(),
+            "top": self.k_top.isChecked(),
+        }
+
+    def reject(self):
+        """取消 / 点 × 时回滚已预览的改动。"""
+        if self._cancel_fn:
+            self._cancel_fn()
+        super().reject()
 
     def _refresh_sense(self):
         try:
