@@ -16,7 +16,8 @@ from PyQt6.QtWidgets import (
 )
 
 from . import data as D
-from .util import CONFIG_DIR, CONFIG_PATH, autostart_enabled
+from .util import (CONFIG_DIR, CONFIG_PATH, autostart_enabled,
+                   export_bundle, import_bundle)
 from . import stats
 from . import quotes as Q
 from . import sense as SENSE
@@ -143,7 +144,9 @@ class SettingsDialog(QDialog):
         self.k_mini = self._chk("迷你模式（只显示猫和时间）", "mini", False)
         self.k_sec = self._chk("显示秒", "show_sec", True)
         self.k_top = self._chk("始终显示在最前", "top", True)
-        for b in (self.k_body, self.k_25d, self.k_mini, self.k_sec, self.k_top):
+        self.k_ear = self._chk("耳朵偶尔抖动（微动效）", "ear_tw", True)
+        for b in (self.k_body, self.k_25d, self.k_mini, self.k_sec, self.k_top,
+                  self.k_ear):
             v2.addWidget(b)
         v.addWidget(g2)
 
@@ -296,7 +299,8 @@ class SettingsDialog(QDialog):
         self.k_boss = self._chk("老板键 Ctrl+Alt+H 一键隐身", "boss_key", True)
         self.k_surp = self._chk("随机小惊喜（打喷嚏 / 追尾巴 / 掉金币）",
                                 "surprise", True)
-        for b in (self.k_dock, self.k_boss, self.k_surp):
+        self.k_fling = self._chk("拖动松手后惯性滑行（撞边轻弹）", "fling", True)
+        for b in (self.k_dock, self.k_boss, self.k_surp, self.k_fling):
             v2.addWidget(b)
         v.addWidget(g2)
 
@@ -317,6 +321,27 @@ class SettingsDialog(QDialog):
         self.lab_mood.setStyleSheet("color:#9A8B80; font: 9pt 'Microsoft YaHei';")
         v3.addWidget(self.lab_mood)
         v.addWidget(g3)
+
+        # C1/C2 加班关怀 + 番茄钟
+        gc = QGroupBox("加班关怀 / 番茄钟")
+        vc = QVBoxLayout(gc)
+        self.k_care = self._chk("加班到点劝我下班（30 / 60 / 120 分钟各一次）",
+                                "over_care", True)
+        vc.addWidget(self.k_care)
+        fc = QFormLayout()
+        self.s_pf = QSpinBox()
+        self.s_pf.setRange(1, 120)
+        self.s_pf.setSuffix(" 分钟")
+        self.s_pf.setValue(int(self.cfg.get("pomo_focus", 25)))
+        self.s_pb = QSpinBox()
+        self.s_pb.setRange(1, 60)
+        self.s_pb.setSuffix(" 分钟")
+        self.s_pb.setValue(int(self.cfg.get("pomo_break", 5)))
+        fc.addRow("番茄专注时长：", self.s_pf)
+        fc.addRow("番茄休息时长：", self.s_pb)
+        vc.addLayout(fc)
+        vc.addWidget(QLabel("右键菜单「番茄钟」可随时开始 / 结束"))
+        v.addWidget(gc)
 
         # 6 节日皮肤
         g4 = QGroupBox("节日皮肤（自动生效，无需设置）")
@@ -373,7 +398,8 @@ class SettingsDialog(QDialog):
         self.c_style.currentTextChanged.connect(self._emit_preview)
         for w in (self.c_hat, self.c_acc, self.c_size):
             w.currentIndexChanged.connect(self._emit_preview)
-        for w in (self.k_body, self.k_25d, self.k_mini, self.k_sec, self.k_top):
+        for w in (self.k_body, self.k_25d, self.k_mini, self.k_sec, self.k_top,
+                  self.k_ear):
             w.stateChanged.connect(self._emit_preview)
 
     def _snapshot(self):
@@ -399,6 +425,7 @@ class SettingsDialog(QDialog):
             "mini": self.k_mini.isChecked(),
             "show_sec": self.k_sec.isChecked(),
             "top": self.k_top.isChecked(),
+            "ear_tw": self.k_ear.isChecked(),
         }
 
     def reject(self):
@@ -485,8 +512,22 @@ class SettingsDialog(QDialog):
         v2.addLayout(h)
         v.addWidget(g2)
 
-        g3 = QGroupBox("其他")
-        h3 = QHBoxLayout(g3)
+        g3 = QGroupBox("备份与迁移")
+        v3b = QVBoxLayout(g3)
+        v3b.addWidget(QLabel("把配置 + 自定义语录存成一个文件，换电脑时导入即可。"))
+        h3b = QHBoxLayout()
+        b_exp = QPushButton("导出配置…")
+        b_imp = QPushButton("导入配置…")
+        b_exp.clicked.connect(self._export_bundle)
+        b_imp.clicked.connect(self._import_bundle)
+        h3b.addWidget(b_exp)
+        h3b.addWidget(b_imp)
+        h3b.addStretch(1)
+        v3b.addLayout(h3b)
+        v.addWidget(g3)
+
+        g4 = QGroupBox("其他")
+        h4 = QHBoxLayout(g4)
         b_pos = QPushButton("回到默认位置")
         b_dir = QPushButton("打开配置目录")
         b_cfg = QPushButton("查看配置文件")
@@ -494,9 +535,9 @@ class SettingsDialog(QDialog):
         b_dir.clicked.connect(lambda: self._open_path(CONFIG_DIR))
         b_cfg.clicked.connect(lambda: self._open_path(CONFIG_PATH))
         for b in (b_pos, b_dir, b_cfg):
-            h3.addWidget(b)
-        h3.addStretch(1)
-        v.addWidget(g3)
+            h4.addWidget(b)
+        h4.addStretch(1)
+        v.addWidget(g4)
 
         g4 = QGroupBox("语录（可编辑 JSON，支持天气/周五/久坐文案）")
         v4 = QVBoxLayout(g4)
@@ -569,6 +610,32 @@ class SettingsDialog(QDialog):
         except Exception as e:
             QMessageBox.warning(self, "导出失败", str(e))
 
+    # ---- D3：配置导出 / 导入 ----
+    def _export_bundle(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出 CatClock 配置",
+            os.path.join(os.path.expanduser("~"), "catclock-config.json"),
+            "JSON 文件 (*.json)")
+        if not path:
+            return
+        try:
+            out = export_bundle(path)
+            QMessageBox.information(self, "导出完成", "已导出到\n%s" % out)
+        except Exception as e:
+            QMessageBox.warning(self, "导出失败", str(e))
+
+    def _import_bundle(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "导入 CatClock 配置",
+            os.path.expanduser("~"), "JSON 文件 (*.json)")
+        if not path:
+            return
+        ok, msg = import_bundle(path)
+        if not ok:
+            QMessageBox.warning(self, "导入失败", msg)
+            return
+        QMessageBox.information(self, "导入完成", "%s\n重启 CatClock 后生效。" % msg)
+
     # ---------------------------------------------------------------- 收集
     def _time_val(self, edit, fallback):
         txt = edit.text().strip()
@@ -632,6 +699,11 @@ class SettingsDialog(QDialog):
             "boss_key": self.k_boss.isChecked(),
             "surprise": self.k_surp.isChecked(),
             "mood_daily": self.k_mood.isChecked(),
+            "ear_tw": self.k_ear.isChecked(),
+            "fling": self.k_fling.isChecked(),
+            "over_care": self.k_care.isChecked(),
+            "pomo_focus": int(self.s_pf.value()),
+            "pomo_break": int(self.s_pb.value()),
         }
         out["_autostart"] = self.k_auto.isChecked()
         out["_reset_pos"] = bool(getattr(self, "_want_reset_pos", False))

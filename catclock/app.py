@@ -60,6 +60,12 @@ class _WinMSG(ctypes.Structure):
 WM_HOTKEY = 0x0312
 
 
+def _mix_rgb(c, q, k):
+    """A2：把 RGB 元组 c 向 QColor q 混合 k 比例（0..1），返回新元组。"""
+    t = (q.red(), q.green(), q.blue())
+    return tuple(int(round(c[i] + (t[i] - c[i]) * k)) for i in range(3))
+
+
 class CatClock(QWidget):
     W = 272
     BUB_TOP = 0           # 0 = 语录文字回到右侧文字区（v39 布局）；>0 = 飘在猫头顶上方
@@ -97,7 +103,9 @@ class CatClock(QWidget):
         self._press_pos = None     # 按下时的全局坐标（区分点击/拖动）
         self._press_on_cat = False
         self._prev_secs = None     # 上一帧剩余秒（跨点检测用）
-        self._fired_marks = set()  # 本阶段已发过的预告（1800/600）
+        self._fired_marks = set()  # 本阶段已发过的预告（3600/1800/600/300）
+        self._over_marks = set()   # C1：今日已劝过的加班档位（30/60/120 分钟）
+        self.pomo = None           # C2：番茄钟 {"mode": "focus"/"break", "left": 剩余秒}
         self._rest_eve_day = None  # 已提示过的"明天休息"日期
         self.ear_tw = None         # 2.5D 耳抖 (方向, 起始 t0)
         self.next_ear_tw = 12.0    # 下次耳抖的 t0
@@ -133,6 +141,18 @@ class CatClock(QWidget):
         self._dock_slide_timer.setInterval(16)
         self._dock_slide_timer.timeout.connect(self._dock_slide_step)
         self._dock_slide = None        # (起点, 终点, 已走步数)
+
+        # A5：松手惯性滑行（撞到屏幕边缘会轻弹回来）
+        self._fling_timer = QTimer(self)
+        self._fling_timer.timeout.connect(self._fling_step)
+        self._drag_vel = [0.0, 0.0]
+        self._drag_last = None
+        # B1：完整 / 迷你模式切换的高度渐变
+        self._h_anim = None            # 动画中的插值高度；None = 用当前模式固定高度
+        self._h_anim_timer = QTimer(self)
+        self._h_anim_timer.timeout.connect(self._h_anim_step)
+        self._h_from = self._h_to = 0
+        self._h_k = 0.0
 
         self.setWindowTitle(APP_NAME)
         self.set_window_flags()
@@ -285,11 +305,39 @@ class CatClock(QWidget):
             return "coffee"
         return None
 
+    def _cur_h(self):
+        """当前面板逻辑高度（B1 动画期间取插值，避免布局跳变）。"""
+        if self._h_anim is not None:
+            return self._h_anim
+        return self.H_MINI if self.cfg.get("mini") else self.H_FULL
+
+    def _anim_h_to(self, target):
+        """B1：完整↔迷你切换时高度渐变，而不是瞬间跳变。"""
+        if abs(target - self._cur_h()) < 0.5:
+            return
+        self._h_from, self._h_to, self._h_k = self._cur_h(), target, 0.0
+        self._h_anim = self._h_from
+        self._h_anim_timer.start(16)
+
+    def _h_anim_step(self):
+        self._h_k = min(1.0, self._h_k + 0.13)
+        e = 1.0 - (1.0 - self._h_k) ** 3          # ease-out：起步快、收尾稳
+        self._h_anim = self._h_from + (self._h_to - self._h_from) * e
+        s = float(self.cfg.get("scale", 1.0))
+        self.setFixedSize(int(self.W * s), int(self._h_anim * s))
+        self._bg_invalidate()
+        if self._h_k >= 1.0:
+            self._h_anim_timer.stop()
+            self._h_anim = None
+            self.apply_size()                      # 收尾：走正常流程（clamp / 吸附重算）
+            return
+        self.update()
+
     def _cat_geo(self, prop="__auto__"):
         """猫(动物)的绘制几何：直径 cs、中心 (ccx, ccy)。
         半身模式按物种头顶延伸系数自动定尺寸，保证「头 + 身体 + 道具」都在画布内。"""
         mini = bool(self.cfg.get("mini", False))
-        H = self.H_MINI if mini else self.H_FULL
+        H = self._cur_h()
         ccx = 54 if mini else 58
         bub = 0 if mini else self.BUB_TOP      # 迷你模式不留气泡区
         if not bool(self.cfg.get("body", True)):
@@ -489,6 +537,8 @@ class CatClock(QWidget):
         self.act_settings.triggered.connect(self.open_settings)
         self.act_stats = QAction("工作统计…", self)
         self.act_stats.triggered.connect(self.show_stats)
+        self.act_pomo = QAction("番茄钟 · 专注 25 分钟", self)
+        self.act_pomo.triggered.connect(self.toggle_pomo)
         self.act_mood = QAction("心情打卡…（也可双击猫）", self)
         self.act_mood.triggered.connect(self.ask_mood)
         self.act_week = QAction("本周小结与成就…", self)
@@ -519,6 +569,7 @@ class CatClock(QWidget):
         self.menu.addMenu(self.size_menu)
         self.menu.addAction(self.act_stats)
         self.menu.addAction(self.act_mood)
+        self.menu.addAction(self.act_pomo)
         self.menu.addAction(self.act_week)
         self.menu.addAction(self.act_boss)
         self.menu.addSeparator()
@@ -536,6 +587,7 @@ class CatClock(QWidget):
             (self.act_noff, "notify_off"), (self.act_nwork, "notify_work"),
             (self.act_sound, "sound"),
         ]
+        self._sync_pomo_action()
 
     def _build_tray(self):
         self.tray = QSystemTrayIcon(make_icon(64, self.cfg["char"]), self)
@@ -553,6 +605,7 @@ class CatClock(QWidget):
         tray_menu.addAction(self.act_mini)
         tray_menu.addAction(self.act_boss)
         tray_menu.addAction(self.act_mood)
+        tray_menu.addAction(self.act_pomo)
         tray_menu.addAction(self.act_stats)
         tray_menu.addAction(self.size_menu.menuAction())
         tray_menu.addSeparator()
@@ -692,10 +745,12 @@ class CatClock(QWidget):
                 pass
 
     def toggle_mini(self, on):
-        self.cfg["mini"] = bool(on)
+        on = bool(on)
+        self.cfg["mini"] = on
         save_cfg(self.cfg)
-        self.apply_size()
-        self.act_mini.setChecked(bool(on))
+        self.act_mini.setChecked(on)
+        # B1：高度渐变切换，不再瞬间跳变
+        self._anim_h_to(self.H_MINI if on else self.H_FULL)
 
     def toggle_sec(self, on):
         self.cfg["show_sec"] = bool(on)
@@ -1182,6 +1237,10 @@ class CatClock(QWidget):
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
             gpt = e.globalPosition().toPoint()
+            # 惯性滑行中按下：立刻接管，停下滑行
+            if self._fling_timer.isActive():
+                self._fling_timer.stop()
+                self._after_drag()
             # 吸附状态下按下先把窗口滑出来，保证拖动起点正确
             self._dock_slide_finish()
             if self._dock_edge and not self._dock_out:
@@ -1193,6 +1252,8 @@ class CatClock(QWidget):
             self._press_on_cat = (lx - ccx) ** 2 + (ly - ccy) ** 2 < (cs * 0.52) ** 2
             self._press_pos = gpt
             self.drag_off = gpt - self.frameGeometry().topLeft()
+            self._drag_vel = [0.0, 0.0]           # A5：重新累计拖动速度
+            self._drag_last = (gpt.x(), gpt.y())
             e.accept()
 
     def wheelEvent(self, e):
@@ -1202,7 +1263,14 @@ class CatClock(QWidget):
 
     def mouseMoveEvent(self, e):
         if self.drag_off is not None and e.buttons() & Qt.MouseButton.LeftButton:
-            self.move(e.globalPosition().toPoint() - self.drag_off)
+            gpt = e.globalPosition().toPoint()
+            if self._drag_last is not None:        # A5：指数平滑累计速度
+                dx = gpt.x() - self._drag_last[0]
+                dy = gpt.y() - self._drag_last[1]
+                self._drag_vel[0] = self._drag_vel[0] * 0.6 + dx * 0.4
+                self._drag_vel[1] = self._drag_vel[1] * 0.6 + dy * 0.4
+            self._drag_last = (gpt.x(), gpt.y())
+            self.move(gpt - self.drag_off)
             e.accept()
         else:
             # 悬停猫头检测
@@ -1221,11 +1289,15 @@ class CatClock(QWidget):
     def mouseReleaseEvent(self, e):
         if self.drag_off is not None:
             self.drag_off = None
-            self._clamp()
-            self._apply_dock()                 # 边缘吸附（悬停会临时滑出）
-            px, py = self._dock_off or (self.x(), self.y())
-            self.cfg["pos"] = [px, py]         # 存"完整可见"位置，便于下次恢复
-            save_cfg(self.cfg)
+            self._drag_last = None
+            # A5：甩手后惯性滑行一段；速度太小就直接落位
+            vx = max(-26.0, min(26.0, self._drag_vel[0]))
+            vy = max(-26.0, min(26.0, self._drag_vel[1]))
+            if self.cfg.get("fling", True) and (abs(vx) + abs(vy)) >= 2.5:
+                self._drag_vel = [vx, vy]
+                self._fling_timer.start(16)
+            else:
+                self._after_drag()
         # 点击（非拖动）且按在猫头上才算摸到猫
         if (self._press_pos is not None and self._press_on_cat
                 and (e.globalPosition().toPoint() - self._press_pos).manhattanLength() < 10):
@@ -1233,6 +1305,37 @@ class CatClock(QWidget):
             self.meow_bubble_t = 0.0
         self._press_pos = None
         self._press_on_cat = False
+
+    # ---- A5：拖放惯性 ----
+    def _after_drag(self):
+        """拖动/滑行结束：收边、吸附、记位置。"""
+        self._clamp()
+        self._apply_dock()                 # 边缘吸附（悬停会临时滑出）
+        px, py = self._dock_off or (self.x(), self.y())
+        self.cfg["pos"] = [px, py]         # 存"完整可见"位置，便于下次恢复
+        save_cfg(self.cfg)
+
+    def _fling_step(self):
+        vx, vy = self._drag_vel
+        x, y = self.x() + int(round(vx)), self.y() + int(round(vy))
+        g = self._screen().availableGeometry()
+        w, h = self.width(), self.height()
+        bounced = False
+        if x < g.left():                   # 撞边：反向并大幅衰减，形成轻弹
+            x, vx, bounced = g.left(), -vx * 0.38, True
+        elif x > g.right() - w:
+            x, vx, bounced = g.right() - w, -vx * 0.38, True
+        if y < g.top():
+            y, vy, bounced = g.top(), -vy * 0.38, True
+        elif y > g.bottom() - h:
+            y, vy, bounced = g.bottom() - h, -vy * 0.38, True
+        self.move(x, y)
+        if not bounced:
+            vx, vy = vx * 0.90, vy * 0.90
+        self._drag_vel = [vx, vy]
+        if abs(vx) + abs(vy) < 0.6:
+            self._fling_timer.stop()
+            self._after_drag()
 
     def mouseDoubleClickEvent(self, e):
         # 双击猫头 = 心情打卡；双击其它地方 = 切换秒显示
@@ -1268,11 +1371,26 @@ class CatClock(QWidget):
     def _tick(self):
         dt = getattr(self, "step", 0.1)      # 自适应帧率下的真实帧间隔
         self.t0 += dt
+        # C2：番茄钟倒计时（用 step 计时，避免被后面的 dt 覆盖）
+        if self.pomo:
+            self.pomo["left"] -= getattr(self, "step", 0.1)
+            if self.pomo["left"] <= 0:
+                mode = self.pomo["mode"]
+                self.pomo = None
+                if mode == "focus":
+                    self.notify("番茄结束啦", "起身活动一下，喝口水～", False)
+                    self._pomo_start("break")
+                else:
+                    self._say("休息结束，继续冲～", 3.0)
+                self._sync_pomo_action()
         self.blink_t += dt
         self.quote_t += dt
         if self.blink_t > self.blink_until:
             self.blink_t = 0.0
             self.blink_until = 2.2 + (os.getpid() % 7) * 0.4
+            # A1：偶尔来一次「双眨」，比机械单眨更像活物
+            if random.random() < 0.28:
+                self.blink_until = 0.42
         if self.meow_t < 1.0:
             self.meow_t += 0.8 * dt
         if self.quote_t >= 25.0:        # 每 25 秒换下一条语录
@@ -1341,13 +1459,15 @@ class CatClock(QWidget):
         # 2.5D：随机耳抖（每 25-60 秒一次，每次 0.6 秒）
         if self.ear_tw and self.t0 - self.ear_tw[1] > 0.6:
             self.ear_tw = None
-        if self.cfg.get("dim25") and self.ear_tw is None and self.t0 >= self.next_ear_tw:
+        if self.cfg.get("ear_tw", True) and self.ear_tw is None and self.t0 >= self.next_ear_tw:
             self.ear_tw = (random.choice((-1, 1)), self.t0)
-            self.next_ear_tw = self.t0 + random.uniform(25, 60)
+            self.next_ear_tw = self.t0 + random.uniform(18, 45)
         # 阶段切换：发通知
         prev_phase = self.last_phase
         if prev_phase and phase != prev_phase:
             self._fired_marks.clear()
+            if phase == "off":
+                self._over_marks.clear()      # C1：新的一段加班，重新计劝走档位
             if phase == "off":
                 # 记录真正的下班时刻（周报用）
                 try:
@@ -1378,14 +1498,22 @@ class CatClock(QWidget):
                 self.surprise_next = self.t0 + random.uniform(180, 420)
                 if random.random() < 0.35:
                     self._fire_surprise()
-        # 下班前 30 / 10 分钟预告（跨点检测，每阶段各发一次）
+        # A2：下班临近分级递进 60/30/10/5 分钟（跨点检测，每级各触发一次）
         if phase == "work" and self.cfg.get("notify_pre", True) \
                 and self._prev_secs is not None:
-            for mark in (1800, 600):
+            for mark, title in ((3600, "还有 1 小时下班"),
+                                (1800, "还有 30 分钟下班"),
+                                (600, "还有 10 分钟下班"),
+                                (300, "还有 5 分钟！")):
                 if self._prev_secs > mark >= secs and mark not in self._fired_marks:
                     self._fired_marks.add(mark)
-                    self.notify("还有 %d 分钟就下班啦" % (mark // 60),
-                                "坚持住，猫陪你一起冲～", False)
+                    if mark == 300:                       # 最后 5 分钟：猫开始收拾包
+                        self._start_action("pack", 3.0)
+                        self._say("要下班啦，收东西咯～", 3.0)
+                        if self.cfg.get("notify_pre", True) and not self.afk:
+                            self.notify(title, "收好东西，准点冲！", False)
+                    else:
+                        self.notify(title, "坚持住，猫陪你一起冲～", False)
         # 上班前 10 分钟提醒
         if phase == "pre" and self.cfg.get("notify_work", True) \
                 and self._prev_secs is not None \
@@ -1410,6 +1538,19 @@ class CatClock(QWidget):
                 self.notify("该活动一下啦", Q.hydrate_msg(self.quote_i, self.quotes), False)
         else:
             self.last_hydrate = self.t0
+        # C1：加班关怀——下班后还在忙，到点劝你走（30/60/120 分钟各劝一次）
+        if phase == "off" and self.cfg.get("over_care", True) and not self.afk:
+            try:
+                over_min = stats.summary(now)["today"][1] / 60.0
+            except Exception:
+                over_min = 0.0
+            for mark, txt in ((30, "已经加班半小时啦，差不多就走吧～"),
+                              (60, "加班 1 小时了，身体要紧，收工！"),
+                              (120, "两小时了……猫要睡了，你也快回家吧")):
+                if over_min >= mark and mark not in self._over_marks:
+                    self._over_marks.add(mark)
+                    self._say(txt, 4.0)
+                    break
         self._prev_secs = secs
 
         # ---- 自适应帧率：静止时降频，有动画时立刻回到 10fps ----
@@ -1427,6 +1568,42 @@ class CatClock(QWidget):
         except Exception:
             pass
         self.update()
+
+    # ---------- C2：番茄钟 ----------
+    def _pomo_minutes(self, mode):
+        key = "pomo_focus" if mode == "focus" else "pomo_break"
+        return max(1, int(self.cfg.get(key, 25 if mode == "focus" else 5)))
+
+    def _pomo_start(self, mode):
+        mins = self._pomo_minutes(mode)
+        self.pomo = {"mode": mode, "left": float(mins * 60)}
+        self._say("专注 %d 分钟，猫陪你一起～" % mins if mode == "focus"
+                  else "休息 %d 分钟，起来动一动～" % mins, 3.0)
+
+    def _sync_pomo_action(self):
+        try:
+            if self.pomo:
+                self.act_pomo.setText("结束番茄（%s中）"
+                                      % ("专注" if self.pomo["mode"] == "focus" else "休息"))
+            else:
+                self.act_pomo.setText("番茄钟 · 专注 %d 分钟" % self._pomo_minutes("focus"))
+        except Exception:
+            pass
+
+    def toggle_pomo(self):
+        if self.pomo:
+            self.pomo = None
+            self._say("番茄取消啦～", 2.5)
+        else:
+            self._pomo_start("focus")
+        self._sync_pomo_action()
+
+    def _start_action(self, name, dur=2.0):
+        """A2：播放一个指定动作（覆盖当前待机动作）。"""
+        self.action = name
+        self.action_start = self.t0
+        self.action_dur = dur
+        self.idle = (name, self.t0)
 
     def _say(self, text, dur=3.5):
         """让猫说话（通用气泡）"""
@@ -1859,7 +2036,7 @@ class CatClock(QWidget):
         p.scale(s, s)                       # 全局等比缩放，后续全部用逻辑坐标
         W = self.W
         mini = self.cfg.get("mini", False)
-        H = self.H_MINI if mini else self.H_FULL
+        H = self._cur_h()
         pad = 5
         yo = 0 if mini else self.BUB_TOP      # 非迷你：内容整体下移，给头顶气泡让位
         st = self.style()
@@ -2028,6 +2205,13 @@ class CatClock(QWidget):
                         line1 = pick([wx_full + "已下班 %d 小时 %02d 分" % (h, m),
                                       "已下班 %d 小时 %02d 分" % (h, m),
                                       "已下班 %dh%02d" % (h, m)])
+                # C2：番茄钟运行时，副行改显示番茄倒计时（不跟天气抢宽度）
+                if self.pomo:
+                    mm, ss = divmod(max(0, int(self.pomo["left"])), 60)
+                    if self.pomo["mode"] == "focus":
+                        line1 = "专注 %02d:%02d · 别摸鱼～" % (mm, ss)
+                    else:
+                        line1 = "休息 %02d:%02d · 动一动" % (mm, ss)
                 p.drawText(QRectF(x, 50 + yo, tw, 16),
                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, line1)
 
@@ -2088,8 +2272,14 @@ class CatClock(QWidget):
                     gg.setColorAt(1, QColor(*st["bar1_off"]))
                 else:
                     gg = QLinearGradient(bx, 0, bx + bw, 0)
-                    gg.setColorAt(0, QColor(*st["bar0"]))
-                    gg.setColorAt(1, QColor(*st["bar1"]))
+                    c0, c1 = st["bar0"], st["bar1"]
+                    # A2：越接近下班，进度条越向主题粉靠拢（暖度递进）
+                    if phase == "work" and pct > 0.80:
+                        k = min(1.0, (pct - 0.80) / 0.20) * 0.55
+                        pk = QColor(st["pink"])
+                        c0, c1 = _mix_rgb(c0, pk, k), _mix_rgb(c1, pk, k)
+                    gg.setColorAt(0, QColor(*c0))
+                    gg.setColorAt(1, QColor(*c1))
                 p.setBrush(gg)
                 p.drawPath(rr(bx, by, max(fillw, bh), bh, bh / 2))
 

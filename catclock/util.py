@@ -41,7 +41,12 @@ DEFAULTS = {
     "city": "",           # 天气城市（留空不显示天气）
     "payday": 0,          # 每月发薪日（1-31，0=不显示）
     "hydrate": True,      # 每小时久坐提醒
-    "notify_pre": True,   # 下班前 30/10 分钟预告
+    "notify_pre": True,   # 下班前 60/30/10/5 分钟递进预告
+    "ear_tw": True,       # 耳朵偶尔抖动（A1 微动效）
+    "fling": True,        # A5：拖动松手后惯性滑行（撞边轻弹）
+    "over_care": True,    # C1：加班到点（30/60/120 分钟）劝你下班
+    "pomo_focus": 25,     # C2：番茄钟专注时长（分钟）
+    "pomo_break": 5,      # C2：番茄钟休息时长（分钟）
     "afk": True,          # 离开时猫打瞌睡
     "dim25": False,       # 2.5D 立体效果（投影/倾斜/挤压/耳抖）
     "body": True,         # 半身模式（圆身体 + 前爪 + 状态道具）
@@ -224,6 +229,52 @@ def font(name, size, weight=None, style_hint=None):
             f.setStyleHint(style_hint)
         _FONT_CACHE[key] = f
     return f
+
+
+# ======================================================================
+# D3：配置与语录一键导出 / 导入（换机器用）
+# ======================================================================
+BUNDLE_TYPE = "catclock-bundle"
+QUOTE_PATH = os.path.join(CONFIG_DIR, "quotes.json")
+
+
+def export_bundle(path):
+    """把当前配置 + 自定义语录打包成一个 JSON 文件，返回写入路径。"""
+    data = {"_type": BUNDLE_TYPE, "version": 1, "cfg": load_cfg()}
+    try:
+        if os.path.exists(QUOTE_PATH):
+            with open(QUOTE_PATH, "r", encoding="utf-8") as f:
+                data["quotes"] = json.load(f)
+    except Exception:
+        pass
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+    return path
+
+
+def import_bundle(path):
+    """从打包 JSON 恢复配置与语录。返回 (是否成功, 说明)。"""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        return False, "读取失败：%s" % e
+    if not isinstance(data, dict) or not isinstance(data.get("cfg"), dict):
+        return False, "不是 CatClock 配置文件"
+    cur = load_cfg()
+    for k, v in data["cfg"].items():
+        if k in DEFAULTS or k in ("pos", "llm_key"):
+            cur[k] = v
+    save_cfg(cur)
+    n = 0
+    if isinstance(data.get("quotes"), dict):
+        try:
+            with open(QUOTE_PATH, "w", encoding="utf-8") as f:
+                json.dump(data["quotes"], f, ensure_ascii=False, indent=2)
+            n = 1
+        except Exception:
+            pass
+    return True, "配置已导入%s" % ("（含自定义语录）" if n else "")
 
 
 # ======================================================================

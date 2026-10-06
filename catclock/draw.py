@@ -648,7 +648,8 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         colors = CHARACTERS["橘猫"]
     p.save()
     p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    cy += math.sin(t) * s * 0.018          # 呼吸浮动
+    cy += math.sin(t) * s * 0.018          # 呼吸浮动（上下）
+    s *= 1.0 + 0.006 * math.sin(t * 1.15)  # A1：胸腔起伏，静止时也是「活的」
     # 兼容旧 mood 参数，实际统一走 action
     if action is None and mood is not None:
         action = mood
@@ -672,6 +673,12 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         blink = True
     if action == "tail_wag" and tail_phase is not None:
         tail_phase = _ease(action_k) * 8.0 * math.pi
+    if action == "pack":                     # A2：收拾包——小幅前倾颠动，像在往包里塞东西
+        k = _ease(action_k)
+        b = math.sin(k * math.pi * 3.0)
+        s *= 1.0 + 0.022 * b
+        cy += 0.018 * s * b
+        blink = k > 0.5
 
     lw = max(0.9, s * 0.017)                  # A1：主描边，细节线全部由它派生
     dark = _q_luma(colors["fur"]) < 0.42      # 深毛色：描边向浅色靠拢，避免糊成一团
