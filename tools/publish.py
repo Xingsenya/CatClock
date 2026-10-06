@@ -55,7 +55,10 @@ def main():
 
     # 规避 Windows 上 ~/.ssh/known_hosts 被 ACL 拒绝读取导致的 "Host key verification failed"
     kh = os.path.join(ROOT, ".git", "gh_known_hosts")
-    key = os.path.expanduser("~/.ssh/catclock-deploy")
+    # 私钥优先用仓库内的副本：C:\Users\qizhuo\.ssh 被 ACL 挡住时脚本会读不到而报
+    # "Load key ...: Permission denied"，放一份在 .git 下可稳定读取（该目录不进版本库）
+    local_key = os.path.join(ROOT, ".git", "catclock-deploy")
+    key = local_key if os.path.exists(local_key) else os.path.expanduser("~/.ssh/catclock-deploy")
     ssh_cmd = 'ssh -o UserKnownHostsFile="%s" -o StrictHostKeyChecking=no' % kh.replace("\\", "/")
     if os.path.exists(key):
         ssh_cmd += ' -i "%s"' % key.replace("\\", "/")

@@ -48,6 +48,13 @@ type $env:USERPROFILE\.ssh\catclock-deploy.pub | clip
 > ssh-keygen -t ed25519 -C "catclock" -f "$env:USERPROFILE\.ssh\catclock-deploy"
 > ```
 
+> **`Load key ...: Permission denied` 怎么办**
+> 本机 `C:\Users\qizhuo\.ssh` 被 ACL 挡住时，脚本读不到私钥。解决办法是在仓库内再放一份：
+> ```powershell
+> ssh-keygen -t ed25519 -C "catclock" -f "D:\CatClock\.git\catclock-deploy"
+> type D:\CatClock\.git\catclock-deploy.pub | clip
+> ```
+> 把这段新公钥也加到 GitHub（Deploy keys 允许多个）。`tools/publish.py` 会**优先**用 `.git/catclock-deploy`，之后推送即可全自动。
 **2-2 添加到 GitHub**（加在**账号**上，一次生效所有仓库）：
 
 GitHub 右上角头像 → **Settings** → 左侧 **SSH and GPG keys** → **New SSH key**
