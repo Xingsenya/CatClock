@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""分组设置窗口：外观 / 时间 / 通知 / 天气 / 高级 五个标签页。
+"""分组设置窗口：外观 / 时间 / 通知 / 天气 / 智能 / 高级 六个标签页。
 
 用法：
     dlg = SettingsDialog(cfg, app)
@@ -19,6 +19,11 @@ from . import data as D
 from .util import CONFIG_DIR, CONFIG_PATH, autostart_enabled
 from . import stats
 from . import quotes as Q
+from . import sense as SENSE
+from . import festival as F
+from . import mood as M
+from . import report
+from . import llm
 
 
 def _row(*widgets):
@@ -53,6 +58,7 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self._tab_time(), "时间")
         self.tabs.addTab(self._tab_notify(), "通知")
         self.tabs.addTab(self._tab_weather(), "天气")
+        self.tabs.addTab(self._tab_smart(), "智能")
         self.tabs.addTab(self._tab_adv(), "高级")
 
         btns = QHBoxLayout()
@@ -246,6 +252,150 @@ class SettingsDialog(QDialog):
                 pass
         self.lab_wx.setText(self._wx_text())
 
+    # ---------------------------------------------------------------- 智能
+    def _tab_smart(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+
+        # 1 情境感知
+        g = QGroupBox("情境感知（应用 / 会议 / 忙碌度 / 电量 / CPU）")
+        vv = QVBoxLayout(g)
+        self.k_ctx = self._chk("开启情境感知（猫会根据你在干什么换台词）",
+                               "context_aware", True)
+        vv.addWidget(self.k_ctx)
+        self.lab_sense = QLabel("")
+        self.lab_sense.setWordWrap(True)
+        self.lab_sense.setStyleSheet("color:#9A8B80; font: 9pt 'Microsoft YaHei';")
+        vv.addWidget(self.lab_sense)
+        b_now = QPushButton("刷新")
+        b_now.clicked.connect(self._refresh_sense)
+        vv.addWidget(b_now)
+        v.addWidget(g)
+
+        # 4 交互增强
+        g2 = QGroupBox("交互")
+        v2 = QVBoxLayout(g2)
+        self.k_dock = self._chk("拖到屏幕边缘自动吸附（悬停滑出）", "edge_dock", True)
+        self.k_boss = self._chk("老板键 Ctrl+Alt+H 一键隐身", "boss_key", True)
+        self.k_surp = self._chk("随机小惊喜（打喷嚏 / 追尾巴 / 掉金币）",
+                                "surprise", True)
+        for b in (self.k_dock, self.k_boss, self.k_surp):
+            v2.addWidget(b)
+        v.addWidget(g2)
+
+        # 3 心情打卡
+        g3 = QGroupBox("心情打卡")
+        v3 = QVBoxLayout(g3)
+        self.k_mood = self._chk("每天工作时段提醒一次打卡", "mood_daily", True)
+        v3.addWidget(self.k_mood)
+        hm = QHBoxLayout()
+        for sc in (2, 1, 0):
+            b = QPushButton("%s %s" % (M.SCORE_FACE[sc], M.SCORE_TEXT[sc]))
+            b.clicked.connect(lambda _, v=sc: self._pick_mood(v))
+            hm.addWidget(b)
+        hm.addStretch(1)
+        v3.addLayout(hm)
+        self.lab_mood = QLabel(self._mood_text())
+        self.lab_mood.setWordWrap(True)
+        self.lab_mood.setStyleSheet("color:#9A8B80; font: 9pt 'Microsoft YaHei';")
+        v3.addWidget(self.lab_mood)
+        v.addWidget(g3)
+
+        # 6 节日皮肤
+        g4 = QGroupBox("节日皮肤（自动生效，无需设置）")
+        v4 = QVBoxLayout(g4)
+        f = F.today_festival()
+        v4.addWidget(QLabel("今天：%s" % (f["name"] if f else "不是节日")))
+        lab_f = QLabel("、".join("%d/%d %s" % (m, d, n)
+                                for m, d, n, _ in F.all_festivals()))
+        lab_f.setWordWrap(True)
+        lab_f.setStyleSheet("color:#9A8B80; font: 9pt 'Microsoft YaHei';")
+        v4.addWidget(lab_f)
+        v.addWidget(g4)
+
+        # 12 Qwen 个性化语录
+        g5 = QGroupBox("Qwen 个性化语录（可选，需要 API Key）")
+        v5 = QVBoxLayout(g5)
+        self.k_llm = QCheckBox("启用 AI 生成每日语录（离线自动回退内置语录）")
+        self.e_key = QLineEdit()
+        self.e_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.e_key.setPlaceholderText("sk-…（只保存在本机 %APPDATA%）")
+        self.e_model = QLineEdit()
+        self.e_model.setPlaceholderText("qwen-plus")
+        _c = llm._cfg()
+        self.k_llm.setChecked(bool(_c.get("enabled")))
+        self.e_key.setText(_c.get("api_key", ""))
+        self.e_model.setText(_c.get("model", "qwen-plus"))
+        f5 = QFormLayout()
+        f5.addRow("", self.k_llm)
+        f5.addRow("API Key：", self.e_key)
+        f5.addRow("模型：", self.e_model)
+        v5.addLayout(f5)
+        h5 = QHBoxLayout()
+        b_test = QPushButton("保存并试生成")
+        b_test.clicked.connect(self._test_llm)
+        h5.addWidget(b_test)
+        h5.addStretch(1)
+        v5.addLayout(h5)
+        self.lab_llm = QLabel("")
+        self.lab_llm.setWordWrap(True)
+        self.lab_llm.setStyleSheet("color:#9A8B80; font: 9pt 'Microsoft YaHei';")
+        v5.addWidget(self.lab_llm)
+        v.addWidget(g5)
+
+        v.addStretch(1)
+        self._refresh_sense()
+        return w
+
+    def _refresh_sense(self):
+        try:
+            s = SENSE.sample(force=True)
+            label = SENSE.scene_label(s.get("scene", "other")) or "（普通使用）"
+            bits = ["当前：%s（%s）" % (label, s.get("app") or "未知程序")]
+            if s.get("fullscreen"):
+                bits.append("全屏中")
+            bits.append("忙碌度 %d%%" % int(s.get("busy", 0) * 100))
+            bits.append("CPU %d%%" % int(s.get("cpu", 0)))
+            if s.get("battery", 255) <= 100:
+                bits.append("电量 %d%%%s" % (s["battery"],
+                                             "" if s.get("ac") else "（未插电）"))
+            self.lab_sense.setText("，".join(bits))
+        except Exception as e:
+            self.lab_sense.setText("读取失败：%s" % e)
+
+    def _mood_text(self):
+        try:
+            t = M.today()
+            head = "今天：%s" % (M.SCORE_TEXT.get(t, "还没打卡") if t is not None
+                                else "还没打卡")
+            return head + "\n近 14 天：" + M.curve_text(14) + "\n" + M.insight()
+        except Exception as e:
+            return "读取失败：%s" % e
+
+    def _pick_mood(self, score):
+        try:
+            M.set_today(score)
+            self.lab_mood.setText(self._mood_text())
+        except Exception:
+            pass
+
+    def _test_llm(self):
+        key = self.e_key.text().strip()
+        model = self.e_model.text().strip() or "qwen-plus"
+        enable = self.k_llm.isChecked()
+        if not llm.save_cfg(enable, key, model):
+            self.lab_llm.setText("保存失败，检查配置目录权限")
+            return
+        if not enable or not key:
+            self.lab_llm.setText("已保存（未启用）")
+            return
+        self.lab_llm.setText("正在生成…")
+        from datetime import datetime
+        ctx = {"desc": datetime.now().strftime("%m月%d日 %H:%M 工作日")}
+        lines = llm.generate(ctx)
+        self.lab_llm.setText("示例：" + " / ".join(lines) if lines
+                             else "生成失败：检查 API Key、模型名或网络")
+
     # ---------------------------------------------------------------- 高级
     def _tab_adv(self):
         w = QWidget()
@@ -383,6 +533,12 @@ class SettingsDialog(QDialog):
                 and end == fb_end:
             QMessageBox.warning(self, "时间格式不对", "下班时间请写成 HH:MM，例如 18:00")
             return
+        # Qwen 配置单独存 qwen.json（不要把 key 混进主配置）
+        try:
+            llm.save_cfg(self.k_llm.isChecked(), self.e_key.text().strip(),
+                         self.e_model.text().strip() or "qwen-plus")
+        except Exception:
+            pass
         self.accept()
 
     def result(self):
@@ -411,6 +567,11 @@ class SettingsDialog(QDialog):
             "city": self.e_city.text().strip(),
             "check_update": self.k_upd.isChecked(),
             "count_over": self.k_over.isChecked(),
+            "context_aware": self.k_ctx.isChecked(),
+            "edge_dock": self.k_dock.isChecked(),
+            "boss_key": self.k_boss.isChecked(),
+            "surprise": self.k_surp.isChecked(),
+            "mood_daily": self.k_mood.isChecked(),
         }
         out["_autostart"] = self.k_auto.isChecked()
         out["_reset_pos"] = bool(getattr(self, "_want_reset_pos", False))

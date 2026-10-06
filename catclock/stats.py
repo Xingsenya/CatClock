@@ -44,6 +44,40 @@ def add(day, work_sec=0, over_sec=0):
     _save(d)
 
 
+def mark_off(day, hhmm):
+    """记录某天真正下班的时刻（HH:MM），用于周报算平均下班时间。"""
+    d = _load()
+    rec = d.get(day) or {"work": 0, "over": 0}
+    rec["off"] = hhmm
+    d[day] = rec
+    _save(d)
+
+
+def _minute(hhmm):
+    try:
+        h, m = str(hhmm).split(":")
+        return int(h) * 60 + int(m)
+    except Exception:
+        return None
+
+
+def off_marks(days=None):
+    """返回 {日期: "HH:MM"}，只含有下班时刻记录的日子。"""
+    d = _load()
+    out = {}
+    for day, rec in d.items():
+        if not isinstance(rec, dict):
+            continue
+        v = rec.get("off")
+        if v and (days is None or day in days):
+            out[day] = v
+    return out
+
+
+def all_days():
+    return sorted(_load().keys())
+
+
 def _fmt(sec):
     sec = int(sec or 0)
     h, m = divmod(sec // 60, 60)

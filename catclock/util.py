@@ -50,6 +50,11 @@ DEFAULTS = {
     "acc": "auto",        # 配饰：auto/none/glasses/sunglasses/headphones/bowtie
     "check_update": True, # 启动时静默检查 GitHub Release
     "count_over": True,   # 工作统计是否把下班后的时间计入加班
+    "context_aware": True,  # 情境感知（应用/会议/忙碌度/电量）
+    "edge_dock": True,      # 拖到屏幕边缘自动吸附（悬停时滑出）
+    "surprise": True,       # 随机小惊喜（打喷嚏/追尾巴/掉金币）
+    "boss_key": True,       # 老板键 Ctrl+Alt+H 一键隐身
+    "mood_daily": True,     # 每天工作时段提醒一次心情打卡
 }
 
 # ======================================================================

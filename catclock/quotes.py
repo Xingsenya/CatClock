@@ -27,6 +27,7 @@ def _default_data():
                    for (a, b), pool in D.QUOTES_FRIDAY.items()],
         "weather": {k: list(v) for k, v in D.WEATHER_QUOTES.items()},
         "hydrate": list(D.HYDRATE_MSGS),
+        "context": {k: list(v) for k, v in D.CONTEXT_QUOTES.items()},
     }
 
 
@@ -76,6 +77,9 @@ def load_custom_quotes():
                                if isinstance(v, list)})
     if isinstance(data.get("hydrate"), list) and data["hydrate"]:
         out["hydrate"] = list(data["hydrate"])
+    if isinstance(data.get("context"), dict):
+        out["context"].update({k: list(v) for k, v in data["context"].items()
+                               if isinstance(v, list)})
     return out
 
 
@@ -138,12 +142,23 @@ def hydrate_msg(idx, custom=None):
     return pool[idx % len(pool)]
 
 
+def context_msg(key, idx, custom=None):
+    """按感知场景取语录；未配置返回 None。"""
+    if not key:
+        return None
+    data = custom if custom is not None else _DEFAULT
+    pool = data.get("context", {}).get(key)
+    if not pool:
+        pool = D.CONTEXT_QUOTES.get(key)
+    if not pool:
+        return None
+    return pool[idx % len(pool)]
+
+
 def festive_hat_now():
-    """返回当前节日专属帽，无节日返回 None。
-    目前支持：12/20-12/26 圣诞帽，春节（1/1-1/7）福帽。"""
-    today = date.today()
-    if today.month == 12 and 20 <= today.day <= 26:
-        return "santa"
-    if today.month == 1 and 1 <= today.day <= 7:
-        return "cny"
-    return None
+    """返回当前节日专属帽，无节日返回 None。（委托给 festival 表）"""
+    try:
+        from .festival import festival_hat
+        return festival_hat()
+    except Exception:
+        return None

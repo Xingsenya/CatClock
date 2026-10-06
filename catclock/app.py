@@ -6,6 +6,8 @@ import math
 import random
 import calendar
 import sys
+import ctypes
+from ctypes import wintypes
 from datetime import datetime, timedelta
 
 from PyQt6.QtCore import Qt, QPoint, QPointF, QTimer, QRectF, QUrl, QObject
@@ -27,6 +29,11 @@ from . import update as UPD
 from . import stats
 from . import quotes as Q
 from . import settings as S
+from . import sense as SENSE
+from . import festival as F
+from . import mood
+from . import report
+from . import llm
 from . import __version__
 from .util import (
     APP_NAME, CONFIG_DIR, CONFIG_PATH, DEFAULTS, load_cfg, save_cfg, app_path,
@@ -39,6 +46,19 @@ from .data import (
 )
 from .weather import WeatherFetcher
 from .ui import CatInputDialog, RestDaysDialog
+
+
+class _WinMSG(ctypes.Structure):
+    """Windows MSG（只取前 6 个字段足够判断消息号）
+
+    必须在模块顶层定义：窗口回调里再做 import ctypes / 定义结构会触发
+    Windows loader lock，表现为进程被 fail-fast 杀掉（0xC000041D）。"""
+    _fields_ = [("hwnd", wintypes.HWND), ("message", wintypes.UINT),
+                ("wParam", wintypes.WPARAM), ("lParam", wintypes.LPARAM),
+                ("time", wintypes.DWORD), ("pt", wintypes.POINT)]
+
+WM_HOTKEY = 0x0312
+
 
 class CatClock(QWidget):
     W = 272
@@ -79,6 +99,29 @@ class CatClock(QWidget):
         self._rest_eve_day = None  # 已提示过的"明天休息"日期
         self.ear_tw = None         # 2.5D 耳抖 (方向, 起始 t0)
         self.next_ear_tw = 12.0    # 下次耳抖的 t0
+
+        # ---- 情境感知 / 节日 / 心情 / 智能语录 ----
+        self.sense = {}            # sense.sample() 结果（每 tick 刷新，内部节流）
+        self.quotes = None         # 用户自定义语录（quotes.json）
+        try:
+            self.quotes = Q.load_custom_quotes()
+        except Exception:
+            self.quotes = None
+        self.fest = F.today_festival()   # 今日节日 dict 或 None
+        self.llm_lines = None      # Qwen 生成的今日个性化语录
+        self._llm_day = None
+        self._mood_asked_day = None
+        self.surprise_next = 40.0  # 下次"随机小惊喜"的 t0
+        self.surprise = None       # (name, start_t, dur)
+        self._surprise_prop = None # (道具名, 到期 t0)
+
+        # ---- 老板键 / 边缘吸附 ----
+        self._hidden = False       # 老板键隐身中
+        self._hotkey_ok = False
+        self._dock_edge = None     # left/right/top/None
+        self._dock_off = None      # 吸附前的完整可见位置
+        self._dock_pos = None      # 吸附后的位置
+        self._peek = False         # 悬停时临时滑出
 
         self.setWindowTitle(APP_NAME)
         self.set_window_flags()
@@ -122,6 +165,14 @@ class CatClock(QWidget):
         # 版本更新：启动 6s 后静默检查一次
         self._update_url = None
         self.auto_check_update()
+
+        # 老板键（全局热键 Ctrl+Alt+H）
+        self._register_hotkey()
+        # Qwen 个性化语录（可选，配置关闭则完全静默）
+        self._init_llm()
+        # 节日问候（启动 3 秒后说一次）
+        if self.fest:
+            QTimer.singleShot(3000, lambda: self._say(self.fest["greet"]))
 
     # ---------- 窗口 ----------
     def set_window_flags(self):
@@ -169,6 +220,16 @@ class CatClock(QWidget):
         if not bool(self.cfg.get("body", True)):
             return None
         now = datetime.now()
+        # 随机小惊喜的临时道具优先（掉金币 / 送爱心）
+        sp = getattr(self, "_surprise_prop", None)
+        if sp:
+            name, until = sp
+            if self.t0 < until:
+                return name
+            self._surprise_prop = None
+        # 节日道具
+        if self.fest and self.fest.get("prop"):
+            return self.fest["prop"]
         pday = int(self.cfg.get("payday", 0) or 0)
         if pday and now.day == min(pday, calendar.monthrange(now.year, now.month)[1]):
             return "coin"
@@ -368,6 +429,12 @@ class CatClock(QWidget):
         self.act_settings.triggered.connect(self.open_settings)
         self.act_stats = QAction("工作统计…", self)
         self.act_stats.triggered.connect(self.show_stats)
+        self.act_mood = QAction("心情打卡…（也可双击猫）", self)
+        self.act_mood.triggered.connect(self.ask_mood)
+        self.act_week = QAction("本周小结与成就…", self)
+        self.act_week.triggered.connect(self.show_week)
+        self.act_boss = QAction("老板键（隐身）\tCtrl+Alt+H", self)
+        self.act_boss.triggered.connect(self.toggle_boss)
         self.act_reset = QAction("回到默认位置", self)
         self.act_reset.triggered.connect(self.reset_pos)
         self.act_update = QAction("检查更新…", self)
@@ -391,6 +458,9 @@ class CatClock(QWidget):
         self.menu.addSeparator()
         self.menu.addMenu(self.size_menu)
         self.menu.addAction(self.act_stats)
+        self.menu.addAction(self.act_mood)
+        self.menu.addAction(self.act_week)
+        self.menu.addAction(self.act_boss)
         self.menu.addSeparator()
         self.menu.addAction(self.act_update)
         self.menu.addAction(self.act_about)
@@ -416,6 +486,8 @@ class CatClock(QWidget):
         tray_menu.addSeparator()
         tray_menu.addAction(self.act_settings)
         tray_menu.addAction(self.act_mini)
+        tray_menu.addAction(self.act_boss)
+        tray_menu.addAction(self.act_mood)
         tray_menu.addAction(self.size_menu.menuAction())
         tray_menu.addAction(self.act_end)
         tray_menu.addSeparator()
@@ -628,6 +700,11 @@ class CatClock(QWidget):
             if autostart and not ok:
                 QMessageBox.warning(self, "设置失败", "写入注册表失败，可能需要管理员权限")
         self._apply_cfg(old)
+        # 语录文件可能刚被编辑过，重新加载
+        try:
+            self.quotes = Q.load_custom_quotes()
+        except Exception:
+            pass
         if reset_pos:
             self.reset_pos()
 
@@ -648,6 +725,15 @@ class CatClock(QWidget):
         if self.cfg.get("city", "") != old.get("city", ""):
             self.weather = None
             self.refresh_weather()
+        if bool(self.cfg.get("boss_key", True)) != bool(old.get("boss_key", True)):
+            self._unregister_hotkey()
+            self._register_hotkey()
+        if not self.cfg.get("edge_dock", True) and self._dock_edge:
+            self._dock_edge = None
+            self._dock_pos = None
+            if self._dock_off:
+                self.move(*self._dock_off)
+            self._dock_off = None
         self._sync_menu()
         self.update()
 
@@ -692,6 +778,213 @@ class CatClock(QWidget):
             QMessageBox.information(self, "导出完成", "已导出 %d 天记录到\n%s" % (n, path))
         except Exception as e:
             QMessageBox.warning(self, "导出失败", str(e))
+
+    # ---------- 心情打卡（3） ----------
+    def ask_mood(self):
+        """三选一心情打卡；双击猫头也会走到这里。"""
+        menu = QMenu(self)
+        acts = {}
+        for sc, label in ((2, "开心"), (1, "还行"), (0, "累")):
+            a = QAction("%s %s" % (mood.SCORE_FACE[sc], label), self)
+            a.triggered.connect(lambda _, v=sc: self._set_mood(v))
+            menu.addAction(a)
+            acts[sc] = a
+        menu.exec(QCursor.pos())
+
+    def _set_mood(self, score):
+        reply = mood.set_today(score)
+        self._say(reply)
+        self.tray.setToolTip("%s · 今天：%s" % (APP_NAME, mood.SCORE_TEXT[score]))
+
+    # ---------- 周报与成就（5） ----------
+    def show_week(self):
+        from PyQt6.QtWidgets import QFileDialog
+        plan_end = str(self.cfg.get("end", "18:00"))
+        txt = report.week_text(None, plan_end)
+        box = QMessageBox(self)
+        box.setWindowTitle("本周小结与成就")
+        box.setText(txt)
+        box.setInformativeText("成就徽章：\n" + report.badges_text(None, plan_end))
+        box.addButton("导出心情 CSV", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("关闭", QMessageBox.ButtonRole.RejectRole)
+        if box.exec() != 0:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出心情记录", os.path.join(os.path.expanduser("~"), "mood.csv"),
+            "CSV 文件 (*.csv)")
+        if not path:
+            return
+        try:
+            n = mood.export_csv(path)
+            QMessageBox.information(self, "导出完成", "已导出 %d 天心情记录" % n)
+        except Exception as e:
+            QMessageBox.warning(self, "导出失败", str(e))
+
+    # ---------- 老板键（4） ----------
+    def _unregister_hotkey(self):
+        try:
+            hwnd = int(self.winId())
+            ctypes.windll.user32.UnregisterHotKey(hwnd, 1)
+            ctypes.windll.user32.UnregisterHotKey(hwnd, 2)
+        except Exception:
+            pass
+
+    def _register_hotkey(self):
+        """注册 Ctrl+Alt+H 全局热键（失败静默，菜单仍可用）"""
+        if not self.cfg.get("boss_key", True):
+            return
+        try:
+            MOD_ALT, MOD_CONTROL, MOD_NOREPEAT = 0x0001, 0x0002, 0x4000
+            hwnd = int(self.winId())
+            ok = ctypes.windll.user32.RegisterHotKey(
+                hwnd, 1, MOD_ALT | MOD_CONTROL | MOD_NOREPEAT, ord("H"))
+            self._hotkey_ok = bool(ok)
+            if not ok:
+                # 被其它程序占用时退一档：Ctrl+Alt+`
+                ok = ctypes.windll.user32.RegisterHotKey(
+                    hwnd, 2, MOD_ALT | MOD_CONTROL | MOD_NOREPEAT, 0xC0)
+                self._hotkey_ok = bool(ok)
+        except Exception:
+            self._hotkey_ok = False
+
+    def nativeEvent(self, eventType, message):
+        """接收 WM_HOTKEY（老板键）。
+
+        坑：PyQt6 要求返回 (bool, int)，而基类实现会返回 (False, None)，
+        直接透传会让 sip 转换失败并导致进程被 fail-fast 杀掉，
+        所以这里一定规范化成 (bool, int) 再返回。"""
+        handled, result = False, 0
+        try:
+            if not isinstance(eventType, str):
+                eventType = bytes(eventType).decode("utf-8", "ignore")
+            if eventType in ("windows_generic_MSG", "windows_dispatcher_MSG"):
+                msg = _WinMSG.from_address(int(message))
+                if msg.message == WM_HOTKEY:
+                    self.toggle_boss()
+                    handled = True
+        except Exception:
+            pass
+        try:
+            base = super().nativeEvent(eventType, message)
+            if isinstance(base, tuple) and len(base) == 2:
+                handled = handled or bool(base[0])
+                result = int(base[1]) if base[1] is not None else 0
+        except Exception:
+            pass
+        return handled, result
+
+    def toggle_boss(self):
+        """一键隐身 / 恢复（老板来了）"""
+        if self._hidden:
+            self._hidden = False
+            self.show()
+            self.raise_()
+        else:
+            self._hidden = True
+            self.hide()
+            self.tray.showMessage(
+                APP_NAME, "猫先躲起来了（Ctrl+Alt+H 唤回）",
+                QSystemTrayIcon.MessageIcon.Information, 2000)
+
+    # ---------- 边缘吸附（4） ----------
+    def _apply_dock(self):
+        """拖放结束后判断是否吸附到屏幕边缘；幂等，可重复调用。"""
+        if not self.cfg.get("edge_dock", True):
+            self._dock_edge = None
+            self._dock_off = None
+            self._dock_pos = None
+            return
+        try:
+            ag = self._screen().availableGeometry()
+        except Exception:
+            return
+        w, h = self.width(), self.height()
+        x, y = self.x(), self.y()
+        TH = 70
+        edge = None
+        if x - ag.left() < TH:
+            edge = "left"
+        elif ag.right() - (x + w) < TH:
+            edge = "right"
+        elif y - ag.top() < TH:
+            edge = "top"
+        if edge == self._dock_edge:
+            return                       # 已吸附到同一边，不再偏移
+        self._dock_edge = edge
+        if edge is None:
+            self._dock_off = None
+            self._dock_pos = None
+            return
+        self._dock_off = (x, y)
+        off = int(w * 0.58)
+        if edge == "left":
+            self.move(ag.left() - off, y)
+        elif edge == "right":
+            self.move(ag.right() - w + off, y)
+        else:
+            self.move(x, ag.top() - int(h * 0.55))
+        self._dock_pos = (self.x(), self.y())
+
+    def _peek_out(self):
+        """鼠标移入时把吸附的窗口临时滑出"""
+        if self._dock_edge and self._dock_off and not self._peek:
+            self._peek = True
+            self.move(*self._dock_off)
+
+    def _peek_back(self):
+        if self._peek and self._dock_pos:
+            self._peek = False
+            self.move(*self._dock_pos)
+
+    # ---------- Qwen 个性化语录（12） ----------
+    def _init_llm(self):
+        try:
+            if not llm.is_enabled():
+                return
+            self._llm_day = datetime.now().strftime("%Y-%m-%d")
+            hit = llm.cached(self._llm_day)
+            if hit:
+                self.llm_lines = hit
+                return
+            ctx = {"desc": self._llm_context()}
+            llm.request_async(ctx, self._llm_day, self._on_llm)
+        except Exception:
+            pass
+
+    def _llm_context(self):
+        now = datetime.now()
+        w = self.weather
+        wx = "%s %s℃" % (w.get("text", ""), w.get("temp", "")) if w else "未知"
+        return "%s %s，天气%s，计划 %s 下班，猫叫%s" % (
+            now.strftime("%m月%d日 %H:%M"), mood.WEEKDAY_CN[now.weekday()],
+            wx, self.cfg.get("end", "18:00"), self.cfg.get("char", "橘猫"))
+
+    def _on_llm(self, lines):
+        if lines:
+            self.llm_lines = list(lines)
+
+    # ---------- 随机小惊喜（10） ----------
+    def _fire_surprise(self):
+        """低概率触发一个小惊喜：动作 / 临时道具 / 气泡"""
+        pool = [
+            ("sneeze", 1.2, "阿嚏！猫感冒了（并没有）"),
+            ("sneeze", 1.2, "阿嚏——吓到你了吧"),
+            ("spin", 1.8, "追尾巴中……转晕了"),
+            ("spin", 1.8, "猫在转圈圈，别管我"),
+        ]
+        if bool(self.cfg.get("body", True)):
+            pool += [("coin", 4.0, "哇，掉了一枚金币！"),
+                     ("heart", 4.0, "送你一颗爱心，收好～"),
+                     ("wave", 2.0, " hi～猫跟你打招呼")]
+        name, dur, text = random.choice(pool)
+        if name in ("coin", "heart"):
+            self._surprise_prop = (name, self.t0 + dur)
+        else:
+            self.action = name
+            self.action_start = self.t0
+            self.action_dur = dur
+            self.idle = (name, self.t0)
+        self._say(text, 3.0)
 
     def show_about(self):
         QMessageBox.information(
@@ -755,7 +1048,9 @@ class CatClock(QWidget):
         if self.drag_off is not None:
             self.drag_off = None
             self._clamp()
-            self.cfg["pos"] = [self.x(), self.y()]
+            self._apply_dock()                 # 边缘吸附（悬停会临时滑出）
+            px, py = self._dock_off or (self.x(), self.y())
+            self.cfg["pos"] = [px, py]         # 存"完整可见"位置，便于下次恢复
             save_cfg(self.cfg)
         # 点击（非拖动）且按在猫头上才算摸到猫
         if (self._press_pos is not None and self._press_on_cat
@@ -766,7 +1061,15 @@ class CatClock(QWidget):
         self._press_on_cat = False
 
     def mouseDoubleClickEvent(self, e):
-        pass
+        # 双击猫头 = 心情打卡；双击其它地方 = 切换秒显示
+        pos = e.position()
+        s = float(self.cfg.get("scale", 1.0))
+        lx, ly = pos.x() / s, pos.y() / s
+        cs, ccx, ccy = self._cat_geo()
+        if (lx - ccx) ** 2 + (ly - ccy) ** 2 < (cs * 0.55) ** 2:
+            self.ask_mood()
+        else:
+            self.toggle_sec(not bool(self.cfg.get("show_sec", True)))
 
     def contextMenuEvent(self, e):
         self.act_auto.setChecked(autostart_enabled())
@@ -774,11 +1077,13 @@ class CatClock(QWidget):
 
     def enterEvent(self, e):
         self.hover = True
+        self._peek_out()               # 吸附状态下悬停自动滑出
         self._bg_invalidate()
         self.update()
 
     def leaveEvent(self, e):
         self.hover = False
+        self._peek_back()              # 移开后缩回边缘
         self._bg_invalidate()
         self.update()
 
@@ -812,6 +1117,12 @@ class CatClock(QWidget):
         # 悬停猫头计时会衰减：鼠标不动约 0.8s 后视为静止，允许降频
         if self.hover_cat_t > 0.0:
             self.hover_cat_t = max(0.0, self.hover_cat_t - dt)
+        # ---- 情境感知：前台应用 / 忙碌度 / 电量 / CPU（内部节流 1.5s） ----
+        if self.cfg.get("context_aware", True):
+            try:
+                self.sense = SENSE.sample()
+            except Exception:
+                self.sense = {}
         # 整点报时：7-22 点且非休息日（深夜和休息不打扰）
         now = datetime.now()
         phase, start, end, secs, pct = self._status()
@@ -865,12 +1176,36 @@ class CatClock(QWidget):
         prev_phase = self.last_phase
         if prev_phase and phase != prev_phase:
             self._fired_marks.clear()
+            if phase == "off":
+                # 记录真正的下班时刻（周报用）
+                try:
+                    stats.mark_off(now.strftime("%Y-%m-%d"), now.strftime("%H:%M"))
+                except Exception:
+                    pass
             if phase == "off" and self.cfg.get("notify_off", True):
                 self.notify("下班啦～", "辛苦了，快去享受生活！", True)
             elif phase == "work" and prev_phase in ("pre", "rest") \
                     and self.cfg.get("notify_work", True):
                 self.notify("该上班啦", "新的一天，加油～", False)
         self.last_phase = phase
+        # 心情打卡提醒：工作时段每天问一次（已打卡或已问过就不再打扰）
+        if self.cfg.get("mood_daily", True) and phase == "work" and not self.afk:
+            day = now.strftime("%Y-%m-%d")
+            if self._mood_asked_day != day and now.hour >= 10 and self.t0 > 15.0:
+                try:
+                    already = mood.today() is not None
+                except Exception:
+                    already = True
+                self._mood_asked_day = day
+                if not already:
+                    self._say("今天心情怎么样？双击猫头就能打卡～", 4.0)
+        # 随机小惊喜：约每 3-7 分钟判定一次，35% 概率触发
+        if self.cfg.get("surprise", True) and not self.afk \
+                and not self.cfg.get("mini", False):
+            if self.t0 >= self.surprise_next:
+                self.surprise_next = self.t0 + random.uniform(180, 420)
+                if random.random() < 0.35:
+                    self._fire_surprise()
         # 下班前 30 / 10 分钟预告（跨点检测，每阶段各发一次）
         if phase == "work" and self.cfg.get("notify_pre", True) \
                 and self._prev_secs is not None:
@@ -900,7 +1235,7 @@ class CatClock(QWidget):
                     and self.t0 - self.last_hydrate >= 3600:
                 self.last_hydrate = self.t0
                 self.hydrate_t = 0.0
-                self.notify("该活动一下啦", Q.hydrate_msg(self.quote_i), False)
+                self.notify("该活动一下啦", Q.hydrate_msg(self.quote_i, self.quotes), False)
         else:
             self.last_hydrate = self.t0
         self._prev_secs = secs
@@ -926,17 +1261,6 @@ class CatClock(QWidget):
         self.bubble_text = text
         self.bubble_t = 0.0
 
-    def _quote(self):
-        """挑一条当前时段/天气/周五的自定义语录。"""
-        now = datetime.now()
-        w = self.weather
-        kind = w.get("kind") if w else None
-        msg = Q.get_quote("work", now.hour + now.minute / 60.0,
-                          now.weekday() == 4, kind, self.quote_i)
-        if msg and kind == "sun" and w.get("temp", 0) >= 34:
-            msg += "，多喝水"
-        return msg
-
     def _effective_hat(self):
         """当前实际佩戴的帽子：用户选择 > 节日自动 > 角色默认。"""
         hat = str(self.cfg.get("hat", "auto"))
@@ -948,11 +1272,65 @@ class CatClock(QWidget):
         return D._HAT.get(self.char_colors().get("shape", "cat"), "none")
 
     def _effective_acc(self):
-        """当前实际佩戴的配饰：用户选择 > none。"""
+        """当前实际佩戴的配饰：用户选择 > 节日 > none。"""
         acc = str(self.cfg.get("acc", "auto"))
         if acc != "auto":
             return acc
+        if self.fest and self.fest.get("acc"):
+            return self.fest["acc"]
         return "none"
+
+    def _quote(self):
+        """挑一条语录。优先级：
+        Qwen 个性化 > 节日 > 设备告警 > 应用/会议场景 > 忙碌度 > 天气/周五/时段"""
+        phase = self._status()[0]
+        if phase != "work":
+            return None
+        now = datetime.now()
+        hour = now.hour + now.minute / 60.0
+        i = self.quote_i
+        custom = self.quotes
+
+        # 1) Qwen 个性化语录（配置开启时每 3 条插 1 条）
+        if self.llm_lines and i % 3 == 1:
+            return self.llm_lines[(i // 3) % len(self.llm_lines)]
+
+        # 2) 节日专属
+        if self.fest and i % 4 == 0:
+            pool = self.fest.get("pool") or []
+            if pool:
+                return pool[(i // 4) % len(pool)]
+
+        # 3) 情境感知（应用 / 会议 / 忙碌度 / 电量 / CPU / 全屏）
+        if self.cfg.get("context_aware", True) and self.sense:
+            s = self.sense
+            key = None
+            if s.get("battery", 255) <= 20 and not s.get("ac", True):
+                key = "low_battery"
+            elif s.get("cpu", 0) >= 88:
+                key = "high_cpu"
+            elif s.get("scene") == "meeting":
+                key = "meeting"
+            elif s.get("fullscreen") and i % 2 == 0:
+                key = "fullscreen"
+            elif s.get("scene", "other") != "other":
+                key = s["scene"]
+            elif s.get("busy", 0.0) >= 0.65:
+                key = "busy_high"
+            elif s.get("busy", 1.0) <= 0.15:
+                key = "busy_low"
+            if key:
+                msg = Q.context_msg(key, i // 2, custom)
+                if msg:
+                    return msg
+
+        # 4) 原有：天气 / 周五 / 时段
+        w = self.weather
+        kind = w.get("kind") if w else None
+        msg = Q.get_quote(phase, hour, now.weekday() == 4, kind, i, custom)
+        if msg and kind == "sun" and w.get("temp", 0) >= 34:
+            msg += "，多喝水"
+        return msg
 
     def _bubble_active(self):
         """是否有气泡在展示（猫需要下移让位）"""

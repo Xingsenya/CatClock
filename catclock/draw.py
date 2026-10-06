@@ -419,7 +419,27 @@ def _draw_hat(p, cx, cy, s, colors, outline, style, head_top, hw=0.88, t=0.0):
         p.setPen(QPen(QColor(gold), max(1.0, s * 0.012)))
         p.drawText(QRectF(cx - 0.22 * s, top - 0.03 * s, 0.44 * s, 0.20 * s),
                    Qt.AlignmentFlag.AlignCenter, "福")
-
+    elif style == "witch":
+        # 万圣巫师帽：黑尖顶（微弯）+ 紫宽檐 + 金扣带
+        p.setPen(outline)
+        blk = "#3B2F45"
+        cone = QPainterPath()
+        cone.moveTo(cx - 0.36 * s, top + 0.10 * s)
+        cone.cubicTo(cx - 0.30 * s, top - 0.10 * s,
+                     cx + 0.02 * s, top - 0.24 * s,
+                     cx + 0.30 * s, top - 0.52 * s)
+        cone.cubicTo(cx + 0.20 * s, top - 0.20 * s,
+                     cx + 0.36 * s, top - 0.02 * s,
+                     cx + 0.36 * s, top + 0.10 * s)
+        cone.closeSubpath()
+        p.setBrush(QColor(blk))
+        p.drawPath(cone)
+        p.setBrush(QColor("#7B4BA8"))
+        p.drawEllipse(QRectF(cx - 0.52 * s, top + 0.06 * s, 1.04 * s, 0.17 * s))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#E8B923"))
+        p.drawRoundedRect(QRectF(cx - 0.34 * s, top + 0.05 * s,
+                                 0.68 * s, 0.09 * s), 0.03 * s, 0.03 * s)
 
 
 def _draw_acc(p, cx, cy, s, colors, outline, style, head_top):
@@ -519,6 +539,15 @@ def _draw_prop(p, prop, cx, cy, s, colors, side=None, wx=None, wy=None):
         p.setFont(QFont("Segoe UI", int(s * 0.14), QFont.Weight.Bold))
         p.drawText(QRectF(x - r, y - r, r * 2, r * 2),
                    Qt.AlignmentFlag.AlignCenter, "¥")
+    elif prop == "heart":
+        sz = s * 0.30
+        y = cy + s * 0.78
+        p.setPen(QPen(QColor("#C9426B"), max(1.2, s * 0.014)))
+        p.setBrush(QColor("#F06B8A"))
+        p.drawPath(heart_path(cx, y, sz))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(255, 255, 255, 130))
+        p.drawEllipse(QRectF(cx - sz * 0.40, y - sz * 0.44, sz * 0.20, sz * 0.16))
     elif prop == "bag":
         if wx is None or wy is None:
             return
@@ -615,6 +644,20 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     if action is None and mood is not None:
         action = mood
         action_k = 1.0
+    if action == "sneeze":                   # 打喷嚏：先缩后弹 + 眯眼
+        k = _ease(action_k)
+        if k < 0.30:
+            f = -0.07 * (k / 0.30)
+        elif k < 0.55:
+            f = 0.09 * ((k - 0.30) / 0.25)
+        else:
+            f = 0.09 * max(0.0, 1.0 - (k - 0.55) / 0.45)
+        s *= 1.0 + f
+        blink = True
+    if action == "spin":                     # 追尾巴：整体转一圈
+        p.translate(cx, cy)
+        p.rotate(360.0 * _ease(action_k))
+        p.translate(-cx, -cy)
     if action == "stretch":                  # 伸懒腰：整体放大一点 + 眯眼
         s *= 1.0 + 0.05 * _ease(action_k)
         blink = True
@@ -1498,6 +1541,11 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             R = (cx + sx, sy0, cx + 0.24 * s, cy + 0.82 * s - sway,
                  cx + 0.50 * s, cy + 0.60 * s, 0.0, -1.0)
         elif prop == "coin":                        # 双手捧金币（掌心朝上）
+            L = (cx - sx, sy0, cx - 0.26 * s, cy + 0.80 * s + sway,
+                 cx - 0.52 * s, cy + 0.62 * s, 0.0, -1.0)
+            R = (cx + sx, sy0, cx + 0.26 * s, cy + 0.80 * s - sway,
+                 cx + 0.52 * s, cy + 0.62 * s, 0.0, -1.0)
+        elif prop == "heart":                       # 双手捧爱心（掌心朝上）
             L = (cx - sx, sy0, cx - 0.26 * s, cy + 0.80 * s + sway,
                  cx - 0.52 * s, cy + 0.62 * s, 0.0, -1.0)
             R = (cx + sx, sy0, cx + 0.26 * s, cy + 0.80 * s - sway,
