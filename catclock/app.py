@@ -10,7 +10,7 @@ import ctypes
 from ctypes import wintypes
 from datetime import datetime, timedelta
 
-from PyQt6.QtCore import Qt, QPoint, QPointF, QTimer, QRectF, QUrl, QObject
+from PyQt6.QtCore import Qt, QPoint, QPointF, QTimer, QRect, QRectF, QUrl, QObject
 from PyQt6.QtGui import (
     QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QLinearGradient,
     QRadialGradient, QPixmap, QAction, QActionGroup, QCursor,
@@ -119,9 +119,18 @@ class CatClock(QWidget):
         self._hidden = False       # 老板键隐身中
         self._hotkey_ok = False
         self._dock_edge = None     # left/right/top/None
-        self._dock_off = None      # 吸附前的完整可见位置
-        self._dock_pos = None      # 吸附后的位置
-        self._peek = False         # 悬停时临时滑出
+        self._dock_off = None      # 完整可见位置（贴边但未藏）
+        self._dock_pos = None      # 吸附后的藏身位置
+        self._dock_out = True      # 当前是否在"完整可见"位置
+        self._dock_last = 0.0      # 上次滑出/收回的时间戳（防抖冷却）
+        self._dock_leave = None    # 鼠标离开滑出区的时间戳（延迟收回）
+        self._dock_timer = QTimer(self)   # 只在吸附状态下跑的迟滞监听
+        self._dock_timer.setInterval(80)
+        self._dock_timer.timeout.connect(self._dock_watch)
+        self._dock_slide_timer = QTimer(self)   # 滑出/收回的缓动动画
+        self._dock_slide_timer.setInterval(16)
+        self._dock_slide_timer.timeout.connect(self._dock_slide_step)
+        self._dock_slide = None        # (起点, 终点, 已走步数)
 
         self.setWindowTitle(APP_NAME)
         self.set_window_flags()
@@ -183,11 +192,28 @@ class CatClock(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
     def apply_size(self):
+        # 尺寸变了：先滑回完整位置，避免"半个窗口在屏幕外"时算出错误的吸附参数
+        redock = bool(self._dock_edge)
+        was_out = self._dock_out
+        if redock and not was_out:
+            self._dock_set(True, instant=True)
         s = float(self.cfg.get("scale", 1.0))
         h = self.H_MINI if self.cfg.get("mini") else self.H_FULL
         self.setFixedSize(int(self.W * s), int(int(h) * s))
         self._bg_invalidate()
         self._clamp()
+        if redock:
+            base = self._dock_off
+            self._dock_timer.stop()
+            self._dock_edge = None
+            self._dock_off = None
+            self._dock_pos = None
+            self._dock_out = True
+            if base:
+                self.move(*base)
+            self._apply_dock()      # 用新尺寸重算吸附位置
+            if was_out:
+                self._dock_set(True, instant=True)
         self.update()
 
     def set_scale(self, s):
@@ -318,6 +344,8 @@ class CatClock(QWidget):
         screen = QApplication.primaryScreen().availableGeometry()
         if pos and isinstance(pos, list) and len(pos) == 2:
             self.move(int(pos[0]), int(pos[1]))
+            # 上次是靠边收起的，启动后恢复吸附；首次启动（无记录）保持完整可见
+            self._apply_dock()
         else:
             self.move(screen.right() - self.width() - 28,
                       screen.bottom() - self.height() - 60)
@@ -728,12 +756,8 @@ class CatClock(QWidget):
         if bool(self.cfg.get("boss_key", True)) != bool(old.get("boss_key", True)):
             self._unregister_hotkey()
             self._register_hotkey()
-        if not self.cfg.get("edge_dock", True) and self._dock_edge:
-            self._dock_edge = None
-            self._dock_pos = None
-            if self._dock_off:
-                self.move(*self._dock_off)
-            self._dock_off = None
+        if bool(self.cfg.get("edge_dock", True)) != bool(old.get("edge_dock", True)):
+            self._apply_dock()             # 开→重新吸附，关→恢复原位并停掉监听
         self._sync_menu()
         self.update()
 
@@ -879,8 +903,13 @@ class CatClock(QWidget):
             self._hidden = False
             self.show()
             self.raise_()
+            if self._dock_edge:
+                self._dock_set(False)
+                self._dock_timer.start()
         else:
             self._hidden = True
+            self._dock_slide_finish()
+            self._dock_timer.stop()
             self.hide()
             self.tray.showMessage(
                 APP_NAME, "猫先躲起来了（Ctrl+Alt+H 唤回）",
@@ -888,11 +917,14 @@ class CatClock(QWidget):
 
     # ---------- 边缘吸附（4） ----------
     def _apply_dock(self):
-        """拖放结束后判断是否吸附到屏幕边缘；幂等，可重复调用。"""
+        """拖放结束 / 配置变更后重新判断吸附。会先复位再计算，可重复调用。"""
+        self._dock_timer.stop()
+        self._dock_edge = None
+        self._dock_off = None
+        self._dock_pos = None
+        self._dock_out = True
+        self._dock_leave = None
         if not self.cfg.get("edge_dock", True):
-            self._dock_edge = None
-            self._dock_off = None
-            self._dock_pos = None
             return
         try:
             ag = self._screen().availableGeometry()
@@ -908,33 +940,106 @@ class CatClock(QWidget):
             edge = "right"
         elif y - ag.top() < TH:
             edge = "top"
-        if edge == self._dock_edge:
-            return                       # 已吸附到同一边，不再偏移
-        self._dock_edge = edge
         if edge is None:
-            self._dock_off = None
-            self._dock_pos = None
             return
-        self._dock_off = (x, y)
         off = int(w * 0.58)
         if edge == "left":
-            self.move(ag.left() - off, y)
+            px, py = ag.left() - off, y
         elif edge == "right":
-            self.move(ag.right() - w + off, y)
+            px, py = ag.right() - w + off, y
         else:
-            self.move(x, ag.top() - int(h * 0.55))
-        self._dock_pos = (self.x(), self.y())
+            px, py = x, ag.top() - int(h * 0.55)
+        self._dock_edge = edge
+        self._dock_off = (x, y)
+        self._dock_pos = (px, py)
+        self._dock_last = self.t0
+        self._dock_set(False, instant=True)   # 先收起来
+        self._dock_timer.start()
 
-    def _peek_out(self):
-        """鼠标移入时把吸附的窗口临时滑出"""
-        if self._dock_edge and self._dock_off and not self._peek:
-            self._peek = True
-            self.move(*self._dock_off)
+    def _dock_set(self, out, instant=False):
+        """在"贴边完整可见"与"藏到边缘外"之间切换；幂等 + 冷却由调用方保证。"""
+        if out == self._dock_out:
+            return
+        self._dock_out = out
+        self._dock_last = self.t0
+        self._dock_leave = None
+        tgt = self._dock_off if out else self._dock_pos
+        if tgt:
+            if instant:
+                self._dock_slide_timer.stop()
+                self._dock_slide = None
+                self.move(*tgt)
+            else:
+                self._dock_slide_to(QPoint(*tgt))
+        if out:
+            self.raise_()
 
-    def _peek_back(self):
-        if self._peek and self._dock_pos:
-            self._peek = False
-            self.move(*self._dock_pos)
+    def _dock_slide_to(self, target):
+        """约 130ms 的缓动滑动（只是视觉过渡，判定仍用逻辑目标位置）"""
+        start = QPoint(self.x(), self.y())
+        if start == target:
+            return
+        self._dock_slide = (start, target, 0)
+        self._dock_slide_timer.start()
+
+    def _dock_slide_step(self):
+        if not self._dock_slide:
+            self._dock_slide_timer.stop()
+            return
+        st, tg, i = self._dock_slide
+        i += 1
+        n = 8
+        k = min(1.0, i / n)
+        e = 1 - (1 - k) ** 3                  # ease-out cubic
+        self.move(int(st.x() + (tg.x() - st.x()) * e),
+                  int(st.y() + (tg.y() - st.y()) * e))
+        if k >= 1.0:
+            self._dock_slide = None
+            self._dock_slide_timer.stop()
+        else:
+            self._dock_slide = (st, tg, i)
+
+    def _dock_slide_finish(self):
+        """拖动 / 隐藏前调用：立刻结束动画并落到终点，避免和拖动打架"""
+        self._dock_slide_timer.stop()
+        if self._dock_slide:
+            self.move(self._dock_slide[1])
+            self._dock_slide = None
+
+    def _dock_watch(self):
+        """80ms 轮询鼠标全局位置做迟滞判断。
+        不用 enter/leave 事件直接移动窗口——窗口一动就会重新触发
+        enter/leave，形成「滑出→离开→收回→又滑出」的高频抖动（抽搐）。
+        这里改为：鼠标进触发带才滑出；鼠标离开完整窗口且持续 0.45s 才收回。
+        """
+        if self._hidden or self.drag_off is not None:
+            return
+        if not (self._dock_edge and self._dock_off and self._dock_pos):
+            self._dock_timer.stop()
+            return
+        try:
+            cur = QCursor.pos()
+        except Exception:
+            return
+        w, h = self.width(), self.height()
+        ox, oy = self._dock_off
+        px, py = self._dock_pos
+        now = self.t0
+        # 收起时露出的那一小块（+8px 容差）→ 进入即滑出
+        hid = QRect(px, py, w, h).adjusted(-8, -8, 8, 8)
+        # 滑出后的完整窗口（+18px 迟滞带）→ 离开这么宽才算真的走了
+        full = QRect(ox, oy, w, h).adjusted(-18, -18, 18, 18)
+        if self._dock_out:
+            if full.contains(cur):
+                self._dock_leave = None
+            else:
+                if self._dock_leave is None:
+                    self._dock_leave = now
+                if now - self._dock_leave > 0.45 and now - self._dock_last > 0.25:
+                    self._dock_set(False)
+        else:
+            if hid.contains(cur) and now - self._dock_last > 0.12:
+                self._dock_set(True)
 
     # ---------- Qwen 个性化语录（12） ----------
     def _init_llm(self):
@@ -1004,7 +1109,7 @@ class CatClock(QWidget):
         self._clamp()
 
     def quit(self):
-        self.cfg["pos"] = [self.x(), self.y()]
+        self.cfg["pos"] = list(self._dock_off or (self.x(), self.y()))
         save_cfg(self.cfg)
         self.tray.hide()
         QApplication.quit()
@@ -1012,13 +1117,18 @@ class CatClock(QWidget):
     # ---------- 交互 ----------
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
-            pos = e.position()
+            gpt = e.globalPosition().toPoint()
+            # 吸附状态下按下先把窗口滑出来，保证拖动起点正确
+            self._dock_slide_finish()
+            if self._dock_edge and not self._dock_out:
+                self._dock_set(True, instant=True)
+            pos = self.mapFromGlobal(gpt)      # 滑出后重新换算局部坐标
             s = float(self.cfg.get("scale", 1.0))
             lx, ly = pos.x() / s, pos.y() / s      # 换算到逻辑坐标
             cs, ccx, ccy = self._cat_geo()
             self._press_on_cat = (lx - ccx) ** 2 + (ly - ccy) ** 2 < (cs * 0.52) ** 2
-            self._press_pos = e.globalPosition().toPoint()
-            self.drag_off = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._press_pos = gpt
+            self.drag_off = gpt - self.frameGeometry().topLeft()
             e.accept()
 
     def wheelEvent(self, e):
@@ -1077,18 +1187,16 @@ class CatClock(QWidget):
 
     def enterEvent(self, e):
         self.hover = True
-        self._peek_out()               # 吸附状态下悬停自动滑出
         self._bg_invalidate()
         self.update()
 
     def leaveEvent(self, e):
         self.hover = False
-        self._peek_back()              # 移开后缩回边缘
         self._bg_invalidate()
         self.update()
 
     def closeEvent(self, e):
-        self.cfg["pos"] = [self.x(), self.y()]
+        self.cfg["pos"] = list(self._dock_off or (self.x(), self.y()))
         save_cfg(self.cfg)
         e.accept()
 
