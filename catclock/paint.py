@@ -84,13 +84,16 @@ class _PaintMixin:
         prop = self._prop_now()
         # E3：鼠标停在猫身上时轻微抬头（配合爪型光标，像在看你）
         lift = -cs * 0.025 if self.hover_cat else 0.0
-        draw_cat(p, ccx + shake, ccy + lift, cs, self.char_colors(),
-                 blink=(self.blink_t < 0.18 or meowing) and not still,
-                 excited=excited, sleepy=sleepy,
-                 scared=thunder or too_hot, look=look, action=action,
-                 action_k=action_k, tail_phase=tail_phase, t=self.t0, dim25=dim25,
-                 pet_k=self.meow_t if self.meow_t < 1.0 else None, ear_tw=ear_tw,
-                 body=body, prop=prop, hat=self._effective_hat(), acc=self._effective_acc())
+        # C1：静止时走缓存（见 _draw_cat_cached），动画期间照常逐帧画
+        cat_kw = dict(
+            blink=(self.blink_t < 0.18 or meowing) and not still,
+            excited=excited, sleepy=sleepy,
+            scared=thunder or too_hot, look=look, action=action,
+            action_k=action_k, tail_phase=tail_phase, t=self.t0, dim25=dim25,
+            pet_k=self.meow_t if self.meow_t < 1.0 else None, ear_tw=ear_tw,
+            body=body, prop=prop, hat=self._effective_hat(), acc=self._effective_acc())
+        self._draw_cat_cached(p, ccx + shake, ccy + lift, cs,
+                              self.char_colors(), **cat_kw)
 
         # E1：面板天气氛围（雨雪落在面板上，盖住猫但压在文字之下）
         self._draw_weather_fx(p, W, H, st)
@@ -299,6 +302,64 @@ class _PaintMixin:
                     p.drawEllipse(QRectF(tx - r * 0.40, ty - r * 0.40, r * 0.80, r * 0.80))
 
         p.end()
+
+    # ---------------- C1：猫身绘制缓存 ----------------
+    # 猫是逐帧矢量绘制（几十个 path + 渐变），秒显模式下每秒要重画 10 次。
+    # 静止时外观几乎不变，把它缓存成 pixmap 直接贴图；只有动画期间才逐帧画。
+    CAT_W, CAT_H, CAT_OY = 2.0, 2.4, 0.9      # 缓存画布相对 cs 的宽/高/中心纵向偏移
+
+    def _cat_cache_key(self, cs, colors, kw):
+        """影响猫外观的全部参数；只要有一项变了就得重画。"""
+        look = kw.get("look") or (0.0, 0.0)
+        ear = kw.get("ear_tw")
+        pk = kw.get("pet_k")
+        return (
+            self.cfg.get("char"), int(cs), colors.get("shape", "cat"),
+            bool(kw.get("body")), kw.get("prop"), kw.get("hat"), kw.get("acc"),
+            bool(kw.get("blink")), bool(kw.get("excited")), bool(kw.get("sleepy")),
+            bool(kw.get("scared")), kw.get("action"),
+            round(float(kw.get("action_k") or 0.0), 2),
+            round(float(kw.get("tail_phase") or 0.0), 1),
+            round(float(kw.get("t") or 0.0) / 0.5) * 0.5,      # 呼吸量化到 0.5s
+            bool(kw.get("dim25")),
+            None if pk is None else round(float(pk), 2),
+            None if ear is None else (ear[0], round(float(ear[1]), 2)),
+            round(float(look[0]), 1), round(float(look[1]), 1),   # 瞳孔跟随量化
+            round(float(self.cfg.get("scale", 1.0)), 2),
+            round(float(self.devicePixelRatioF() or 1.0), 2),
+        )
+
+    def _draw_cat_cached(self, p, cx, cy, cs, colors, **kw):
+        """画猫：动画期间直接画，静止时复用上一帧的 pixmap。"""
+        # 有动画在跑 → 必须逐帧画，同时让缓存失效，动画结束后重新建立
+        try:
+            animating = self._anim_active()
+        except Exception:
+            animating = True
+        if animating:
+            self._cat_key = None
+            draw_cat(p, cx, cy, cs, colors, **kw)
+            return
+
+        key = self._cat_cache_key(cs, colors, kw)
+        # PyQt6 drawPixmap 不支持 QRectF 目标，用 QPointF 定位 + pixmap 逻辑尺寸
+        pos = QPointF(cx - cs, cy - self.CAT_OY * cs)
+        if self._cat_key == key and self._cat_pm is not None:
+            p.drawPixmap(pos, self._cat_pm)
+            return
+
+        K = min(3.0, max(1.0, (self.devicePixelRatioF() or 1.0)
+                         * float(self.cfg.get("scale", 1.0))))
+        pm = QPixmap(int(self.CAT_W * cs * K), int(self.CAT_H * cs * K))
+        pm.fill(Qt.GlobalColor.transparent)
+        qp = QPainter(pm)
+        qp.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        qp.scale(K, K)
+        draw_cat(qp, cs, self.CAT_OY * cs, cs, colors, **kw)
+        qp.end()
+        pm.setDevicePixelRatio(K)          # 逻辑尺寸 = 像素 / K，正好等于 CAT_W*cs x CAT_H*cs
+        self._cat_pm, self._cat_key = pm, key
+        p.drawPixmap(pos, pm)
 
     # ---------------- A4：异常兜底 ----------------
     def paintEvent(self, e):

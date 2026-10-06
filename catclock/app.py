@@ -194,6 +194,8 @@ class CatClock(_PaintMixin, _MenuMixin, _NotifyMixin, _InteractMixin, QWidget):
         self.lowfps = False        # 静止降频模式（冻结尾巴/眨眼，保证画面不跳）
         self._bg_key = None        # 背景面板缓存 key
         self._bg_pm = None         # 背景面板缓存 QPixmap
+        self._cat_key = None       # C1：猫身绘制缓存 key
+        self._cat_pm = None        # C1：猫身绘制缓存 QPixmap
 
         # 版本更新：启动 6s 后静默检查一次
         self._update_url = None
