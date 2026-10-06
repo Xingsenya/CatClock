@@ -4,6 +4,11 @@
 
 类似 Catime 的桌面悬浮小窗：多只猫猫 + 多套主题，支持拖动、托盘、开机自启、置顶。
 
+![CatClock 预览](preview_states.png)
+
+- 当前版本：`1.1.0`
+- 下载地址：<https://github.com/Xingsenya/CatClock/releases>（打 tag 后由 GitHub Actions 自动打包发布）
+
 ## 功能
 
 - **倒计时**：上班前 / 工作中（进度条）/ 下班后 / 休息日（每周可配，适配单休轮休）
@@ -27,7 +32,9 @@
 
 ## 使用
 
-下载 `dist/CatClock.exe`（Release 里），双击运行即可。右键托盘/窗口打开菜单。
+从 [Releases](https://github.com/Xingsenya/CatClock/releases) 下载 `CatClock-vX.Y.Z.exe`，双击运行即可，无需安装。右键托盘/窗口打开菜单。
+
+挂件启动时静默检查更新，有新版本会在菜单里提示。
 
 开发：
 
@@ -35,7 +42,10 @@
 pip install PyQt6
 python cat_clock.py        # 源码运行
 python preview_all.py      # 渲染 角色×主题 预览图 preview.png
-python hats_preview.py     # 渲染所有帽子预览图 preview_hats.py
+python hats_preview.py     # 渲染所有帽子预览图 preview_hats.png
+python tools/smoke.py      # 一键冒烟：编译检查 + 渲染 preview_states.png
+python tools/smoke.py --exe  # 额外拉起 dist/CatClock.exe 跑 15 秒再关掉
+python tools/publish.py    # 提交 → 推 main → 打版本 tag → 触发 CI 发 Release
 ```
 
 打包：`pyinstaller CatClock.spec`（已配置 onefile + icon + catclock 包）

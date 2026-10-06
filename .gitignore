@@ -2,6 +2,7 @@
 build*/
 dist/
 *.spec
+!CatClock.spec          # 打包配置本身要入库（CI 依赖它）
 
 # Python 缓存
 __pycache__/
@@ -26,3 +27,7 @@ build_dbg/
 *.bak.*
 smoke_*.txt
 clean_log.txt
+dbg_*.txt
+review_*.png
+_kh_tmp
+.memory/
