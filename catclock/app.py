@@ -62,7 +62,7 @@ WM_HOTKEY = 0x0312
 
 class CatClock(QWidget):
     W = 272
-    H_FULL = 134
+    H_FULL = 142          # 两行语录气泡 + 进度条仍能完整落在面板内
     H_MINI = 76
 
     def __init__(self):
@@ -1430,28 +1430,92 @@ class CatClock(QWidget):
         self.bubble_text = text
         self.bubble_t = 0.0
 
+    # ---- 圆角气泡排版辅助 ----
+    def _wrap_lines(self, fm, text, max_w):
+        """按可用宽度贪心断行（逐字符，中英混排都安全）。"""
+        lines, cur = [], ""
+        for ch in (text or "").replace("\r", "").replace("\n", " "):
+            if cur and fm.horizontalAdvance(cur + ch) > max_w:
+                lines.append(cur)
+                cur = ""
+            cur += ch
+        if cur:
+            lines.append(cur)
+        return lines
+
+    def _fit_bubble_lines(self, fm, text, max_w, max_lines=2):
+        """断行 + 限行 + 末行孤字回移（避免「敬礼」被单独甩到第二行）。"""
+        lines = self._wrap_lines(fm, text, max_w)
+        if len(lines) > max_lines:
+            rest = "".join(lines[max_lines - 1:])
+            head = lines[:max_lines - 1]
+            s = ""
+            for ch in rest:
+                if fm.horizontalAdvance(s + ch + "…") > max_w:
+                    break
+                s += ch
+            lines = head + [s.rstrip() + "…"]
+        if len(lines) >= 2 and len(lines[-1]) <= 1 and len(lines[-2]) >= 3:
+            lines[-1] = lines[-2][-1] + lines[-1]
+            lines[-2] = lines[-2][:-1]
+        return lines
+
     def _draw_bubble(self, p, x, y, max_w, text, st, alpha=255, tail=True):
-        """绘制圆角文字气泡，自动换行并返回实际宽高。max_w 为可用最大宽度。"""
+        """圆角漫画气泡：淡主题底 + 柔和高光描边，尾巴指向左侧的猫。
+        自动换行（最多 2 行），返回实际 (宽, 高)。"""
         if not text:
             return 0, 0
+        p.save()
         p.setFont(font("Microsoft YaHei", 9))
         fm = p.fontMetrics()
-        pad_x, pad_y = 10, 5
-        max_line_w = max(20, int(max_w) - pad_x * 2)
-        br = fm.boundingRect(QRect(0, 0, max_line_w, 1000),
-                             Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignCenter, text)
-        bw = min(int(max_w), br.width() + pad_x * 2)
-        bh = br.height() + pad_y * 2
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(255, 255, 255, min(235, alpha)))
+        pad_x, pad_y = 9, 4
+        max_line_w = max(28, int(max_w) - pad_x * 2)
+        lines = self._fit_bubble_lines(fm, text, max_line_w, 2)
+        if not lines:
+            p.restore()
+            return 0, 0
+        lh = fm.height()
+        bw = min(int(max_w), max(46, max(fm.horizontalAdvance(l) for l in lines) + pad_x * 2))
+        bh = lh * len(lines) + pad_y * 2
+        r = min(bh * 0.46, 12.0)
+        p.setOpacity(max(0.0, min(1.0, alpha / 255.0)))
+
+        # 配色随主题走：浅色面板 → 奶白底 + 主题粉细边；深色面板 → 半透明白
+        dark = sum(st["panel0"][:3]) / 3.0 < 128
+        if dark:
+            bg = QColor(255, 255, 255, 34)
+            bd = QColor(255, 255, 255, 66)
+        else:
+            acc = QColor(st["pink"])
+            bg = QColor(255, 255, 255, 246)
+            bd = QColor(acc.red(), acc.green(), acc.blue(), 96)
+        pen = QPen(bd, 1.1)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+
+        # 尾巴：从气泡左缘伸向猫（先画，接缝由气泡本体覆盖）
         if tail:
-            p.drawEllipse(QRectF(x - 5, y + bh - 7, 8, 8))   # 指向猫的小尾巴
-        p.drawPath(rr(x, y, bw, bh, 9))
+            tp = QPainterPath()
+            ty0 = y + bh * 0.36
+            tp.moveTo(x + 1.0, ty0)
+            tp.lineTo(x - 7.5, ty0 + bh * 0.34)
+            tp.lineTo(x + 1.0, ty0 + bh * 0.68)
+            tp.closeSubpath()
+            p.setPen(pen)
+            p.setBrush(bg)
+            p.drawPath(tp)
+
+        # 气泡本体
+        p.setPen(pen)
+        p.setBrush(bg)
+        p.drawPath(rr(x, y, bw, bh, r))
+
+        # 文字
         p.setPen(QColor(st["text"]))
-        p.setOpacity(alpha / 255.0)
-        p.drawText(QRectF(x, y + pad_y - 2, bw, bh - pad_y * 2 + 4),
-                   Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, text)
-        p.setOpacity(1.0)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        for i, ln in enumerate(lines):
+            p.drawText(QRectF(x + pad_x, y + pad_y + i * lh, bw - pad_x * 2, lh),
+                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, ln)
+        p.restore()
         return bw, bh
 
     def _effective_hat(self):
@@ -1844,14 +1908,15 @@ class CatClock(QWidget):
                         if q:
                             msg = (q, 255)
 
-                quote_h = 0
+                quote_h = 6               # 面板变高后的底部基线补偿
                 if msg:
                     text, alpha = msg
                     is_quote = (self.hydrate_t >= 5.0 and self.hourly_t >= 3.0
                                 and self.meow_bubble_t >= 2.5 and self.bubble_t >= 3.5)
-                    _, bh = self._draw_bubble(p, x, 64, tw, text, st,
+                    _, bh = self._draw_bubble(p, x, 66, tw, text, st,
                                               alpha=alpha, tail=not is_quote)
-                    quote_h = bh + 6
+                    # 气泡区高过预留的 12px 才把下方内容整体下移，减少跳动
+                    quote_h = max(6, bh - 12)
 
                 # 行3：发薪日（语录气泡高时整体下移，避免重叠）
                 pay = self.payday_info()
