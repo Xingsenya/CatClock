@@ -62,8 +62,9 @@ WM_HOTKEY = 0x0312
 
 class CatClock(QWidget):
     W = 272
-    H_FULL = 142          # 两行语录气泡 + 进度条仍能完整落在面板内
-    H_MINI = 76
+    BUB_TOP = 34          # 猫头顶之上的「气泡区」：语录气泡飘在这里，尾巴朝下指向猫头
+    H_FULL = 170          # 138(内容区) + 34(气泡区) - 2，保证气泡/进度条都在面板内
+    H_MINI = 76           # 迷你模式不显示气泡
 
     def __init__(self):
         super().__init__()
@@ -289,11 +290,12 @@ class CatClock(QWidget):
         mini = bool(self.cfg.get("mini", False))
         H = self.H_MINI if mini else self.H_FULL
         ccx = 54 if mini else 58
+        bub = 0 if mini else self.BUB_TOP      # 迷你模式不留气泡区
         if not bool(self.cfg.get("body", True)):
             cs, dy = (60, 0) if mini else (84, 0)
             if self.char_colors().get("shape") == "rabbit":
                 cs, dy = (56, 12) if mini else (84, 10)
-            return cs, ccx, H / 2 + dy
+            return cs, ccx, bub / 2 + H / 2 + dy
         shape = self.char_colors().get("shape", "cat")
         top = _TOP_EXT.get(shape, 0.64)
         # 帽子占的头顶空间（auto = 物种默认帽 / 节日自动帽）
@@ -303,9 +305,9 @@ class CatClock(QWidget):
             prop = self._prop_now()
         if prop == "umbrella":
             top = max(top, 0.88)                    # 伞要撑在头顶，多留空间
-        cs = int((H - 8) / (top + 1.02))
+        cs = int((H - 8 - bub) / (top + 1.02))
         cs = max(30, min(96, cs))
-        return cs, ccx, 4 + top * cs
+        return cs, ccx, 4 + bub + top * cs
 
     def style(self):
         return STYLES[self.cfg["style"]]
@@ -1460,24 +1462,125 @@ class CatClock(QWidget):
             lines[-2] = lines[-2][:-1]
         return lines
 
-    def _draw_bubble(self, p, x, y, max_w, text, st, alpha=255, tail=True):
-        """圆角漫画气泡：淡主题底 + 柔和高光描边，尾巴指向左侧的猫。
-        自动换行（最多 2 行），返回实际 (宽, 高)。"""
+    # ---- 气泡形状 ----
+    def _bubble_shape(self, kind, excited=False):
+        """B1：按消息类型自动选形状。
+        hydrate→水滴 / meow→心形 / 快下班或兴奋→爆炸框 / 语录→思考云 / 其它→云朵。"""
+        if kind == "hydrate":
+            return "drop"
+        if kind == "meow":
+            return "heart"
+        if kind == "quote":
+            return "burst" if excited else "think"
+        return "cloud"
+
+    def _bubble_path(self, shape, x, y, w, h):
+        """生成气泡轮廓（文字内边距由 _draw_bubble 负责）。"""
+        pp = QPainterPath()
+        if shape == "cloud" or shape == "think":
+            r = h / 2.0
+            n = max(3, min(6, int(w / (r * 1.1))))
+            step = (w - 2 * r) / (n - 1) if n > 1 else 0.0
+            for i in range(n):                      # 底部一排圆 → 云朵轮廓
+                cx = x + r + i * step
+                ri = r * (0.84 if 0 < i < n - 1 else 1.0)
+                pp.addEllipse(QRectF(cx - ri, y + h / 2 - ri, ri * 2, ri * 2))
+            pp.addEllipse(QRectF(x + r * 0.55, y + h * 0.10, r * 1.5, r * 1.5))
+            pp.addEllipse(QRectF(x + w - r * 2.05, y + h * 0.16, r * 1.4, r * 1.4))
+            pp.setFillRule(Qt.FillRule.WindingFill)
+        elif shape == "burst":
+            amp = min(6.0, h * 0.22)
+            pts = []
+
+            def edge(x0, y0, x1, y1, m, nx, ny):
+                for k in range(m):
+                    t = k / float(m)
+                    off = amp if k % 2 == 0 else -amp * 0.34
+                    pts.append((x0 + (x1 - x0) * t + nx * off,
+                                y0 + (y1 - y0) * t + ny * off))
+
+            mh = max(4, int(w / 13))
+            mv = max(2, int(h / 13))
+            edge(x, y, x + w, y, mh, 0, -1)
+            edge(x + w, y, x + w, y + h, mv, 1, 0)
+            edge(x + w, y + h, x, y + h, mh, 0, 1)
+            edge(x, y + h, x, y, mv, -1, 0)
+            pp.moveTo(QPointF(pts[0][0], pts[0][1]))
+            for qx, qy in pts[1:]:
+                pp.lineTo(QPointF(qx, qy))
+            pp.closeSubpath()
+        elif shape == "heart":
+            pts = []
+            for i in range(73):
+                t = 2 * math.pi * i / 72
+                hx = 16 * math.sin(t) ** 3
+                hy = -(13 * math.cos(t) - 5 * math.cos(2 * t)
+                       - 2 * math.cos(3 * t) - math.cos(4 * t))
+                pts.append((hx, hy))
+            xs = [q[0] for q in pts]
+            ys = [q[1] for q in pts]
+            x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+            for i, (hx, hy) in enumerate(pts):
+                px = x + (hx - x0) / max(1e-6, x1 - x0) * w
+                py = y + (hy - y0) / max(1e-6, y1 - y0) * h
+                if i == 0:
+                    pp.moveTo(QPointF(px, py))
+                else:
+                    pp.lineTo(QPointF(px, py))
+            pp.closeSubpath()
+        elif shape == "drop":
+            cx = x + w / 2.0
+            pp.moveTo(QPointF(cx, y))
+            pp.cubicTo(QPointF(x + w * 0.90, y + h * 0.40), QPointF(x + w, y + h * 0.62),
+                       QPointF(x + w * 0.86, y + h * 0.84))
+            pp.cubicTo(QPointF(x + w * 0.70, y + h), QPointF(x + w * 0.30, y + h),
+                       QPointF(x + w * 0.14, y + h * 0.84))
+            pp.cubicTo(QPointF(x, y + h * 0.62), QPointF(x + w * 0.10, y + h * 0.40),
+                       QPointF(cx, y))
+            pp.closeSubpath()
+        elif shape == "capsule":
+            pp.addRoundedRect(QRectF(x, y, w, h), h / 2.0, h / 2.0)
+        else:                                        # round
+            pp.addRoundedRect(QRectF(x, y, w, h), min(h * 0.46, 12.0), min(h * 0.46, 12.0))
+        return pp
+
+    def _draw_bubble(self, p, x, y, max_w, text, st, alpha=255, shape="round",
+                     bottom=None, tail_x=None):
+        """漫画气泡：形状随情绪切换，飘在猫头顶上方（bottom=气泡底边 y）。
+        尾巴朝下指向猫头；自动换行，返回实际 (宽, 高)。"""
         if not text:
             return 0, 0
         p.save()
         p.setFont(font("Microsoft YaHei", 9))
         fm = p.fontMetrics()
-        pad_x, pad_y = 9, 4
+        lh = fm.height()
+        if shape in ("heart", "drop"):
+            pad_x, pad_y, max_lines = 15, 9, 1       # 异形泡只放一行，放不下自动降级
+        elif shape == "burst":
+            pad_x, pad_y, max_lines = 15, 9, 2
+        elif shape in ("cloud", "think"):
+            pad_x, pad_y, max_lines = 13, 5, 2
+        else:
+            pad_x, pad_y, max_lines = 10, 4, 2
         max_line_w = max(28, int(max_w) - pad_x * 2)
-        lines = self._fit_bubble_lines(fm, text, max_line_w, 2)
+        lines = self._fit_bubble_lines(fm, text, max_line_w, max_lines)
         if not lines:
             p.restore()
             return 0, 0
-        lh = fm.height()
-        bw = min(int(max_w), max(46, max(fm.horizontalAdvance(l) for l in lines) + pad_x * 2))
+        if shape in ("heart", "drop") and len(lines) > 1:
+            shape, pad_x, pad_y = "round", 10, 4     # 撑不下的异形泡退回圆角
+            lines = self._fit_bubble_lines(fm, text, max_line_w, 2)
+        t_w = max(fm.horizontalAdvance(l) for l in lines)
+        bw = min(int(max_w), max(46, int(t_w + pad_x * 2)))
         bh = lh * len(lines) + pad_y * 2
-        r = min(bh * 0.46, 12.0)
+        if shape == "heart":
+            bw = min(int(max_w), max(56, int(t_w + 32)))
+            bh = max(32, lh * len(lines) + 20)
+        elif shape == "drop":
+            bw = min(int(max_w), max(54, int(t_w + 28)))
+            bh = max(30, lh * len(lines) + 18)
+        if bottom is not None:
+            y = bottom - bh
         p.setOpacity(max(0.0, min(1.0, alpha / 255.0)))
 
         # 配色随主题走：浅色面板 → 奶白底 + 主题粉细边；深色面板 → 半透明白
@@ -1492,13 +1595,21 @@ class CatClock(QWidget):
         pen = QPen(bd, 1.1)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
 
-        # 尾巴：从气泡左缘伸向猫（先画，接缝由气泡本体覆盖）
-        if tail:
+        # 尾巴：朝下指向猫头（思考泡用小圆点串联，其余用小三角）
+        tx = tail_x if tail_x is not None else x + bw / 2.0
+        tx = max(x + 10, min(x + bw - 10, tx))
+        if shape == "think":
+            for i, k in enumerate((1.0, 0.62)):
+                r = 3.8 * k
+                cy_d = y + bh + 2.5 + i * 5.2
+                p.setPen(pen)
+                p.setBrush(bg)
+                p.drawEllipse(QRectF(tx - r, cy_d - r, r * 2, r * 2))
+        elif shape in ("round", "cloud", "burst"):
             tp = QPainterPath()
-            ty0 = y + bh * 0.36
-            tp.moveTo(x + 1.0, ty0)
-            tp.lineTo(x - 7.5, ty0 + bh * 0.34)
-            tp.lineTo(x + 1.0, ty0 + bh * 0.68)
+            tp.moveTo(QPointF(tx - 6.0, y + bh - 1.5))
+            tp.lineTo(QPointF(tx + 6.0, y + bh - 1.5))
+            tp.lineTo(QPointF(tx, y + bh + 7.5))
             tp.closeSubpath()
             p.setPen(pen)
             p.setBrush(bg)
@@ -1507,14 +1618,21 @@ class CatClock(QWidget):
         # 气泡本体
         p.setPen(pen)
         p.setBrush(bg)
-        p.drawPath(rr(x, y, bw, bh, r))
+        p.drawPath(self._bubble_path(shape, x, y, bw, bh))
 
-        # 文字
+        # 文字（异形泡视觉重心略偏下，做一点补偿）
+        dy = 0.0
+        if shape == "heart":
+            dy = bh * 0.06
+        elif shape == "drop":
+            dy = bh * 0.09
+        elif shape == "burst":
+            dy = 0.0
         p.setPen(QColor(st["text"]))
         p.setBrush(Qt.BrushStyle.NoBrush)
         for i, ln in enumerate(lines):
-            p.drawText(QRectF(x + pad_x, y + pad_y + i * lh, bw - pad_x * 2, lh),
-                       Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, ln)
+            p.drawText(QRectF(x + pad_x, y + pad_y + i * lh + dy, bw - pad_x * 2, lh),
+                       Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter, ln)
         p.restore()
         return bw, bh
 
@@ -1718,6 +1836,7 @@ class CatClock(QWidget):
         mini = self.cfg.get("mini", False)
         H = self.H_MINI if mini else self.H_FULL
         pad = 5
+        yo = 0 if mini else self.BUB_TOP      # 非迷你：内容整体下移，给头顶气泡让位
         st = self.style()
 
         phase, start, end, secs, pct = self._status()
@@ -1772,7 +1891,7 @@ class CatClock(QWidget):
 
         # 天气小图标（右上角）
         if self.weather and not mini:
-            draw_weather_icon(p, W - 36, 14, 22, self.weather["kind"], self.t0)
+            draw_weather_icon(p, W - 36, 14 + yo, 22, self.weather["kind"], self.t0)
 
         # 摸猫爱心
         if self.meow_t < 1.0:
@@ -1789,36 +1908,37 @@ class CatClock(QWidget):
 
         x = 98 if mini else 112
         tw = W - x - 14
+        yc = (H + yo) / 2.0                   # 视觉中心（含气泡区后的等效中心）
 
         # ---- 主文字区 ----
         if phase == "rest":
             p.setPen(QColor(st["pink"]))
             p.setFont(font("Microsoft YaHei", 20, QFont.Weight.Bold))
-            p.drawText(QRectF(x, H / 2 - 34, tw, 36),
+            p.drawText(QRectF(x, yc - 34, tw, 36),
                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "今天休息～")
             p.setPen(QColor(st["sub"]))
             p.setFont(font("Microsoft YaHei", 9))
             now = datetime.now()
-            p.drawText(QRectF(x, H / 2 + 2, tw, 18),
+            p.drawText(QRectF(x, yc + 2, tw, 18),
                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                        "%d月%d日 · 好好放松" % (now.month, now.day))
             pay = self.payday_info()
             if pay:
                 p.setPen(QColor(st["pink"]))
-                p.drawText(QRectF(x, H / 2 + 22, tw, 16),
+                p.drawText(QRectF(x, yc + 22, tw, 16),
                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "¥ %s" % pay)
         else:
             # 倒计时数字
             if phase == "off":
                 p.setPen(QColor(st["pink"]))
                 p.setFont(font("Microsoft YaHei", 20 if not mini else 18, QFont.Weight.Bold))
-                p.drawText(QRectF(x, 14, tw, 36),
+                p.drawText(QRectF(x, 14 + yo, tw, 36),
                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "下班啦～")
             else:
                 fcol = QColor(st["pink"] if excited else st["text"])
                 size = 24 if mini else (26 if show_sec else 30)
                 p.setFont(font("Segoe UI", size, QFont.Weight.Bold, QFont.StyleHint.SansSerif))
-                cy0 = (H / 2 - 38) if mini else 12
+                cy0 = (H / 2 - 38) if mini else 12 + yo
                 if show_sec:
                     txt = "%02d:%02d:%02d" % (h, m, s)
                     p.setPen(fcol)
@@ -1882,20 +2002,23 @@ class CatClock(QWidget):
                         line1 = pick([wx_full + "已下班 %d 小时 %02d 分" % (h, m),
                                       "已下班 %d 小时 %02d 分" % (h, m),
                                       "已下班 %dh%02d" % (h, m)])
-                p.drawText(QRectF(x, 50, tw, 16),
+                p.drawText(QRectF(x, 50 + yo, tw, 16),
                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, line1)
 
-                # 行2：气泡消息（猫说的话/语录，尾巴指向猫）
-                # 临时消息优先；没有临时消息时显示语录气泡（自动换行）
+                # 猫头顶气泡：临时消息优先，其次是语录（形状随情绪自动切换）
                 msg = None
+                kind = "say"
                 if self.hydrate_t < 5.0:
                     k = self.hydrate_t
+                    kind = "hydrate"
                     msg = ("喝口水，动一动～", 255 if k < 4.0 else max(0, int(255 * (5.0 - k))))
                 elif self.hourly_t < 3.0:
                     k = self.hourly_t
+                    kind = "hourly"
                     msg = ("%d 点啦" % datetime.now().hour, 255 if k < 2.2 else max(0, int(255 * (3.0 - k) / 0.8)))
                 elif self.meow_bubble_t < 2.5:
                     k = self.meow_bubble_t
+                    kind = "meow"
                     msg = ("呼噜噜～" if self.meow_t < 1.0 else "喵～",
                            255 if k < 1.8 else max(0, int(255 * (2.5 - k) / 0.7)))
                 elif self.bubble_t < 3.5:
@@ -1903,32 +2026,30 @@ class CatClock(QWidget):
                     msg = (self.bubble_text or "",
                            255 if k < 2.6 else max(0, int(255 * (3.5 - k) / 0.9)))
                 else:
-                    if phase == "work" and not excited and not self.afk:
+                    if phase == "work" and not self.afk:
                         q = self._quote()
                         if q:
+                            kind = "quote"
                             msg = (q, 255)
 
-                quote_h = 6               # 面板变高后的底部基线补偿
                 if msg:
                     text, alpha = msg
-                    is_quote = (self.hydrate_t >= 5.0 and self.hourly_t >= 3.0
-                                and self.meow_bubble_t >= 2.5 and self.bubble_t >= 3.5)
-                    _, bh = self._draw_bubble(p, x, 66, tw, text, st,
-                                              alpha=alpha, tail=not is_quote)
-                    # 气泡区高过预留的 12px 才把下方内容整体下移，减少跳动
-                    quote_h = max(6, bh - 12)
+                    # 气泡飘在猫头顶上方：底边贴着头顶上沿 2px，尾巴朝下指向猫头
+                    self._draw_bubble(p, 10, 6, W - 20, text, st, alpha=alpha,
+                                      shape=self._bubble_shape(kind, excited),
+                                      bottom=4 + self.BUB_TOP - 2, tail_x=ccx)
 
-                # 行3：发薪日（语录气泡高时整体下移，避免重叠）
+                # 行3：发薪日
                 pay = self.payday_info()
                 if pay and phase != "pre":
                     p.setPen(QColor(st["pink"]))
-                    p.drawText(QRectF(x, 83 + quote_h, tw, 15),
+                    p.drawText(QRectF(x, 89 + yo, tw, 15),
                                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                                "¥ %s" % pay)
 
         # ---- 进度条（非迷你、非休息日） ----
         if not mini and phase != "rest":
-            bx, by, bw, bh = x, 102 + quote_h, tw, 6
+            bx, by, bw, bh = x, 108 + yo, tw, 6
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(*st["bar_bg"]))
             p.drawPath(rr(bx, by, bw, bh, bh / 2))
