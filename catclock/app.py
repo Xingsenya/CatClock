@@ -62,8 +62,8 @@ WM_HOTKEY = 0x0312
 
 class CatClock(QWidget):
     W = 272
-    BUB_TOP = 26          # 猫头顶之上的「气泡区」：语录气泡飘在这里，尾巴朝下指向猫头
-    H_FULL = 162          # 138(内容区) + 26(气泡区) - 2，保证气泡/进度条都在面板内
+    BUB_TOP = 28          # 猫头顶之上的「气泡区」：语录气泡飘在这里，尾巴朝下指向猫头
+    H_FULL = 166          # 138(内容区) + 28(气泡区)，气泡底贴着头顶上沿
     H_MINI = 76           # 迷你模式不显示气泡
 
     def __init__(self):
@@ -1472,7 +1472,7 @@ class CatClock(QWidget):
             return "heart"
         if kind == "quote" and excited:
             return "burst"
-        return "round"
+        return "capsule"          # 默认用胶囊，单行更圆润、不呆板
 
     def _bubble_path(self, shape, x, y, w, h):
         """生成气泡轮廓（文字内边距由 _draw_bubble 负责）。"""
@@ -2035,9 +2035,9 @@ class CatClock(QWidget):
                 if msg:
                     text, alpha = msg
                     # 气泡飘在猫头顶上方：底边贴着头顶上沿 2px，尾巴朝下指向猫头
-                    self._draw_bubble(p, 10, 6, W - 20, text, st, alpha=alpha,
+                    self._draw_bubble(p, 16, 6, W - 32, text, st, alpha=alpha,
                                       shape=self._bubble_shape(kind, excited),
-                                      bottom=4 + self.BUB_TOP - 2, tail_x=ccx)
+                                      bottom=4 + self.BUB_TOP, tail_x=ccx)
 
                 # 行3：发薪日
                 pay = self.payday_info()
