@@ -459,7 +459,7 @@ class CatClock(_PaintMixin, _MenuMixin, _NotifyMixin, _InteractMixin, QWidget):
 
 
     # ---------- 计时 ----------
-    def _tick(self):
+    def _tick_impl(self):
         dt = getattr(self, "step", 0.1)      # 自适应帧率下的真实帧间隔
         self.t0 += dt
         self._update_tray_icon()             # F4：托盘图标上的剩余时间
@@ -661,6 +661,15 @@ class CatClock(_PaintMixin, _MenuMixin, _NotifyMixin, _InteractMixin, QWidget):
             pass
         self.update()
 
+
+    def _tick(self):
+        """A4：tick 里任何异常都不能让计时循环死掉（否则挂件静止不动）。"""
+        try:
+            self._tick_impl()
+        except Exception:
+            from . import log
+            log.exception("_tick")
+
     # ---------- C2：番茄钟 ----------
     def _pomo_minutes(self, mode):
         key = "pomo_focus" if mode == "focus" else "pomo_break"
@@ -859,12 +868,14 @@ class CatClock(_PaintMixin, _MenuMixin, _NotifyMixin, _InteractMixin, QWidget):
 
 
 def _excepthook(exc_type, exc_value, exc_tb):
-    """B3：未捕获异常写日志而不是直接崩掉，便于用户排查。"""
+    """A4/B3：未捕获异常统一走 log 模块（%APPDATA%\\CatClock\\catclock.log）。"""
     try:
         import traceback
+        from . import log as LOG
+        LOG.exception("excepthook")
+        # 兼容旧习惯：同时写一份 crash.log
         os.makedirs(CONFIG_DIR, exist_ok=True)
-        log = os.path.join(CONFIG_DIR, "crash.log")
-        with open(log, "a", encoding="utf-8") as f:
+        with open(os.path.join(CONFIG_DIR, "crash.log"), "a", encoding="utf-8") as f:
             f.write("%s %s: %s\n" % (datetime.now().isoformat(),
                                      exc_type.__name__, exc_value))
             traceback.print_exception(exc_type, exc_value, exc_tb, file=f)
@@ -875,6 +886,8 @@ def _excepthook(exc_type, exc_value, exc_tb):
 
 def main():
     sys.excepthook = _excepthook
+    from . import log as LOG
+    LOG.startup(__version__)          # A3：每次启动写一行，便于回溯
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)

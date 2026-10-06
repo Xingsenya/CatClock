@@ -17,6 +17,7 @@ from . import data as D
 from . import ui as U
 from .draw import draw_cat, heart_path, draw_weather_icon
 from .util import font, rr, _mix, _q_luma
+from . import log
 
 
 def _mix_rgb(c, q, k):
@@ -26,7 +27,7 @@ def _mix_rgb(c, q, k):
 
 
 class _PaintMixin:
-    def paintEvent(self, _):
+    def _paint_impl(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.drawPixmap(0, 0, self._bg_pixmap())     # 面板走缓存，不再每帧重画阴影
@@ -298,6 +299,40 @@ class _PaintMixin:
                     p.drawEllipse(QRectF(tx - r * 0.40, ty - r * 0.40, r * 0.80, r * 0.80))
 
         p.end()
+
+    # ---------------- A4：异常兜底 ----------------
+    def paintEvent(self, e):
+        """绘制出错时降级到「面板 + 一行字」，绝不白屏、绝不崩溃。"""
+        try:
+            self._paint_impl(e)
+        except Exception:
+            from . import log
+            log.exception("paintEvent")
+            try:
+                self._paint_fallback()
+            except Exception:
+                pass
+
+    def _paint_fallback(self):
+        """降级画面：只画面板和一个提示，保证挂件仍然可见、可右键退出。"""
+        from . import log
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        try:
+            st = self.style()
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(*st["panel0"]))
+            p.drawRoundedRect(QRectF(4, 4, self.width() - 8, self.height() - 8), 20, 20)
+            p.setPen(QColor(*st["text"]))
+            p.setFont(font("Microsoft YaHei", 10))
+            p.drawText(QRectF(10, 10, self.width() - 20, self.height() - 20),
+                       Qt.AlignmentFlag.AlignCenter,
+                       "CatClock 绘制异常\n已降级显示（详见日志）")
+        except Exception:
+            log.exception("paint_fallback")
+        finally:
+            p.end()
+
 
 
     def _bg_pixmap(self):
