@@ -27,6 +27,7 @@ from . import festival as F
 from . import mood as M
 from . import report
 from . import llm
+from . import log as LOG
 
 
 def _row(*widgets):
@@ -678,10 +679,12 @@ class SettingsDialog(QDialog):
         b_pos = QPushButton("回到默认位置")
         b_dir = QPushButton("打开配置目录")
         b_cfg = QPushButton("查看配置文件")
+        b_log = QPushButton("打开日志文件")
         b_pos.clicked.connect(self._reset_pos)
         b_dir.clicked.connect(lambda: self._open_path(CONFIG_DIR))
         b_cfg.clicked.connect(lambda: self._open_path(CONFIG_PATH))
-        for b in (b_pos, b_dir, b_cfg):
+        b_log.clicked.connect(lambda: self._open_path(LOG._PATH))
+        for b in (b_pos, b_dir, b_cfg, b_log):
             h4.addWidget(b)
         h4.addStretch(1)
         v.addWidget(g4)
