@@ -62,8 +62,8 @@ WM_HOTKEY = 0x0312
 
 class CatClock(QWidget):
     W = 272
-    BUB_TOP = 34          # 猫头顶之上的「气泡区」：语录气泡飘在这里，尾巴朝下指向猫头
-    H_FULL = 170          # 138(内容区) + 34(气泡区) - 2，保证气泡/进度条都在面板内
+    BUB_TOP = 26          # 猫头顶之上的「气泡区」：语录气泡飘在这里，尾巴朝下指向猫头
+    H_FULL = 162          # 138(内容区) + 26(气泡区) - 2，保证气泡/进度条都在面板内
     H_MINI = 76           # 迷你模式不显示气泡
 
     def __init__(self):
@@ -1464,15 +1464,15 @@ class CatClock(QWidget):
 
     # ---- 气泡形状 ----
     def _bubble_shape(self, kind, excited=False):
-        """B1：按消息类型自动选形状。
-        hydrate→水滴 / meow→心形 / 快下班或兴奋→爆炸框 / 语录→思考云 / 其它→云朵。"""
+        """B1：按消息类型自动选形状。默认走最干净的圆角泡，
+        只有喝水(水滴) / 摸猫(心形) / 快下班(爆炸框) 才换异形。"""
         if kind == "hydrate":
             return "drop"
         if kind == "meow":
             return "heart"
-        if kind == "quote":
-            return "burst" if excited else "think"
-        return "cloud"
+        if kind == "quote" and excited:
+            return "burst"
+        return "round"
 
     def _bubble_path(self, shape, x, y, w, h):
         """生成气泡轮廓（文字内边距由 _draw_bubble 负责）。"""
@@ -1574,13 +1574,13 @@ class CatClock(QWidget):
         bw = min(int(max_w), max(46, int(t_w + pad_x * 2)))
         bh = lh * len(lines) + pad_y * 2
         if shape == "heart":
-            bw = min(int(max_w), max(56, int(t_w + 32)))
-            bh = max(32, lh * len(lines) + 20)
+            bw = min(int(max_w), max(52, int(t_w + 28)))
+            bh = max(26, lh * len(lines) + 14)
         elif shape == "drop":
-            bw = min(int(max_w), max(54, int(t_w + 28)))
-            bh = max(30, lh * len(lines) + 18)
+            bw = min(int(max_w), max(50, int(t_w + 24)))
+            bh = max(24, lh * len(lines) + 12)
         if bottom is not None:
-            y = bottom - bh
+            y = max(1.0, bottom - bh)       # 气泡区压窄后，超高气泡贴顶而不越界
         p.setOpacity(max(0.0, min(1.0, alpha / 255.0)))
 
         # 配色随主题走：浅色面板 → 奶白底 + 主题粉细边；深色面板 → 半透明白
