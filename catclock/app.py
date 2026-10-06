@@ -390,7 +390,7 @@ class CatClock(QWidget):
                 cs, dy = (56, 12) if mini else (84, 10)
             return cs, ccx, bub / 2 + H / 2 + dy
         shape = self.char_colors().get("shape", "cat")
-        top = _TOP_EXT.get(shape, 0.64)
+        top = D._TOP_EXT.get(shape, 0.64)
         # 帽子占的头顶空间（auto = 物种默认帽 / 节日自动帽）
         hat = self._effective_hat()
         top = max(top, D._HAT_EXT.get(hat, 0.0))
@@ -398,9 +398,10 @@ class CatClock(QWidget):
             prop = self._prop_now()
         if prop == "umbrella":
             top = max(top, 0.88)                    # 伞要撑在头顶，多留空间
-        cs = int((H - 8 - bub) / (top + 1.02))
-        cs = max(30, min(96, cs))
-        return cs, ccx, 4 + bub + top * cs
+        # 1.10 给 slim/long 身体、爪子与道具留安全边距，避免半身被裁出画面
+        cs = int((H - 10 - bub) / (top + 1.10))
+        cs = max(36, min(80, cs))
+        return cs, ccx, 6 + bub + top * cs
 
     def style(self):
         return STYLES[self.cfg["style"]]
@@ -797,6 +798,7 @@ class CatClock(QWidget):
     def toggle_cfg(self, key, on):
         self.cfg[key] = bool(on)
         save_cfg(self.cfg)
+        self.update()
 
     def set_hat(self, style):
         self.cfg["hat"] = style

@@ -51,6 +51,7 @@ def render(out):
         w = CatClock()
         w.cfg["mini"] = False
         w.cfg["scale"] = 1.0
+        w.cfg["body"] = True
         w.apply_size()
         n = datetime.now()
         w._status = lambda: ("work", n.replace(hour=9, minute=0),
