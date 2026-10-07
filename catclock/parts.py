@@ -611,3 +611,66 @@ def _draw_prop(p, prop, cx, cy, s, colors, side=None, wx=None, wy=None):
         mid.quadTo(cx, cy + s * 0.42, cx - s * 0.26, cy + s * 0.32)
         mid.closeSubpath()
         p.drawPath(mid)
+    # ---- C2：角色专属道具 ----
+    elif prop == "cheese":                # 鼠：三角奶酪块 + 奶酪洞
+        w, h = s * 0.30, s * 0.26
+        x, y = cx - w / 2, cy + s * 0.74
+        p.setPen(_line(QColor("#D9A520"), lw * 0.82))
+        p.setBrush(QColor("#FFD34D"))
+        tri = QPainterPath()
+        tri.moveTo(x, y + h)
+        tri.lineTo(x + w, y + h)
+        tri.lineTo(x + w * 0.5, y)
+        tri.closeSubpath()
+        p.drawPath(tri)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#E8B93A"))
+        for hx, hy, hr in ((0.36, 0.70, 0.045), (0.63, 0.86, 0.034), (0.50, 0.52, 0.028)):
+            p.drawEllipse(QRectF(x + w * hx - hr * s, y + h * hy - hr * s,
+                                 2 * hr * s, 2 * hr * s))
+    elif prop == "banana":                # 猴：弯香蕉
+        p.setPen(_line(QColor("#C99A18"), lw * 0.82))
+        p.setBrush(QColor("#FFE066"))
+        bp = QPainterPath()
+        bx0, by0 = cx - s * 0.14, cy + s * 0.76
+        bp.moveTo(bx0, by0)
+        bp.quadTo(cx - s * 0.10, cy + s * 1.06, cx + s * 0.14, cy + s * 1.00)
+        bp.quadTo(cx + s * 0.10, cy + s * 0.92, cx - s * 0.02, cy + s * 0.86)
+        bp.quadTo(cx - s * 0.05, cy + s * 0.79, bx0, by0)
+        bp.closeSubpath()
+        p.drawPath(bp)
+        p.setPen(_line(QColor("#8A6A28"), lw * 0.90))
+        p.drawLine(QPointF(cx - s * 0.125, cy + s * 0.78),
+                   QPointF(cx - s * 0.175, cy + s * 0.71))
+    elif prop == "worm":                  # 鸡：粉红小虫
+        p.setPen(_line(QColor("#C97060"), lw * 0.82))
+        p.setBrush(QColor("#F5A0A0"))
+        p.drawRoundedRect(QRectF(cx - s * 0.16, cy + s * 0.79, s * 0.32, s * 0.13),
+                          s * 0.065, s * 0.065)
+        p.setPen(_line(QColor("#D98A80"), lw * 0.70))
+        for dx in (-0.06, 0.02, 0.10):
+            p.drawLine(QPointF(cx + dx * s, cy + s * 0.80),
+                       QPointF(cx + dx * s, cy + s * 0.91))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#4A342C"))
+        p.drawEllipse(QRectF(cx - s * 0.115, cy + s * 0.825, s * 0.036, s * 0.036))
+    elif prop == "bamboo":                # 熊猫：竹节 + 竹叶
+        p.setPen(_line(QColor("#4E8A3E"), lw * 0.82))
+        p.setBrush(QColor("#8FC96A"))
+        p.drawRoundedRect(QRectF(cx - s * 0.055, cy + s * 0.70, s * 0.11, s * 0.30),
+                          s * 0.030, s * 0.030)
+        p.setPen(_line(QColor("#4E8A3E"), lw * 0.90))
+        for dy in (0.80, 0.90):
+            p.drawLine(QPointF(cx - s * 0.055, cy + dy * s),
+                       QPointF(cx + s * 0.055, cy + dy * s))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#6FB84E"))
+        for sign in (-1, 1):
+            lf = QPainterPath()
+            lf.moveTo(cx + sign * s * 0.05, cy + s * 0.73)
+            lf.quadTo(cx + sign * s * 0.20, cy + s * 0.67,
+                      cx + sign * s * 0.22, cy + s * 0.76)
+            lf.quadTo(cx + sign * s * 0.12, cy + s * 0.78,
+                      cx + sign * s * 0.05, cy + s * 0.73)
+            lf.closeSubpath()
+            p.drawPath(lf)

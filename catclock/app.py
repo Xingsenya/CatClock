@@ -299,6 +299,12 @@ class CatClock(_PaintMixin, _MenuMixin, _NotifyMixin, _InteractMixin, QWidget):
             return "fan"
         if wtemp is not None and wtemp <= 2:
             return "scarf"
+        # C2：角色专属道具（鼠奶酪 / 猴香蕉 / 鸡虫子 / 熊猫竹子）
+        # 注意：_CHAR_PROP 按 shape 建表，生肖的「角色名 ≠ shape」，必须先取 shape
+        _ch = CHARACTERS.get(self.cfg.get("char"), {})
+        cp = D._CHAR_PROP.get(_ch.get("shape"))
+        if cp:
+            return cp
         phase = self._status()[0]
         if phase == "off":
             return "bag"

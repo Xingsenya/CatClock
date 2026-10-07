@@ -173,7 +173,19 @@ class SettingsDialog(QDialog):
         g1 = QGroupBox("角色")
         f = QFormLayout(g1)
         self.c_char = QComboBox()
-        self.c_char.addItems(list(D.CHARACTERS))
+        # E2：按「猫族 / 十二生肖 / 特殊」分组展示，组标题不可选
+        for grp in D.CHAR_GROUPS:
+            self.c_char.addItem("── %s ──" % grp)
+            it = self.c_char.model().item(self.c_char.count() - 1)
+            if it is not None:
+                it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+            for name in D._CHAR_GROUPS.get(grp, ()):
+                if name in D.CHARACTERS:
+                    self.c_char.addItem(name)
+        # 兜底：分组表里漏掉的角色仍要能选到
+        for name in D.CHARACTERS:
+            if self.c_char.findText(name) < 0:
+                self.c_char.addItem(name)
         self.c_char.setCurrentText(str(self.cfg.get("char", "橘猫")))
         f.addRow("角色：", self.c_char)
 

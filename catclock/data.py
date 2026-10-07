@@ -192,16 +192,19 @@ CHARACTERS = {
             dict(x=0.28, y=0.10, w=0.28, h=0.24, c="#F3A65A"),
             dict(x=-0.46, y=0.12, w=0.26, h=0.22, c="#3B3733"),
         ), ears=("#F3A65A", "#3B3733"),
+        tail="plush",          # C3：三花毛长，蓬松粗尾
     ),
     "白猫": dict(
         fur="#FFFFFF", fur_d="#F1ECE5", fur_l="#FFFFFF", line="#C4B4A2",
         ear_in="#FFC2CE", nose="#FF9FB0", eye="#4A342C",
         tabby=False, patches=(), ears=(None, None),
+        tail="plush",          # C3：长毛白猫，蓬松尾
     ),
     "蓝猫": dict(
         fur="#AAB5C1", fur_d="#8F9BA9", fur_l="#C7CED7", line="#7D8997",
         ear_in="#DBA9B5", nose="#E89AA8", eye="#4E9E85",
         tabby=True, tabby_c="#93A0AE", patches=(), ears=(None, None),
+        tail="whip",           # C3：英短体型紧凑，细长尾
     ),
     "暹罗猫": dict(
         fur="#F6EDE2", fur_d="#EADFD2", fur_l="#FBF6EE", line="#C9B8A8",
@@ -209,6 +212,7 @@ CHARACTERS = {
         tabby=False, patches=(
             dict(x=-0.16, y=-0.42, w=0.30, h=0.34, c="#5C463A", feather=True),   # 面部重点色
         ), ears=("#5C463A", "#5C463A"),
+        tail="whip",           # C3：暹罗修长，细鞭尾
     ),
     "虎斑猫": dict(
         fur="#C4B09A", fur_d="#A98F76", fur_l="#EFE3D2", line="#8A7258",

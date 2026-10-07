@@ -167,6 +167,14 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     # A1：脸型轮廓（宽扁 / 修长 / 心形 / 蓬松 / 尖脸 / 眉骨）
     face = _FACE.get(shape, "round")
     head_path = _head_path(head_rect, face)
+    # C1：生肖专属姿态（羊低头 / 龙蛇抬头）—— 绕身体下部轻微旋转
+    pose = _POSE.get(shape)
+    if pose in ("bow", "head_up"):
+        p.save()
+        ay = cy + 0.55 * s
+        p.translate(cx, ay)
+        p.rotate(7.0 if pose == "bow" else -6.0)
+        p.translate(-cx, -ay)
 
     # ---- 尾巴（最底层；按物种分样式，不再所有角色共用猫尾） ----
     if tail_phase is not None:
@@ -176,7 +184,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             bx, by = cx - 0.38 * s, cy + 0.32 * s
         # sw 已被行波实现取代，保留注释备查
         # sw = math.sin(tail_phase) * 0.18 * s
-        ttype = _TAIL.get(shape, "cat")
+        ttype = colors.get("tail") or _TAIL.get(shape, "cat")
         fd = QColor(colors["fur_d"])
         fl = QColor(colors["fur_l"])
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -270,7 +278,28 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             p.drawLine(QPointF(bx, by - 0.02 * s),
                        QPointF(bx + math.cos(math.radians(128)) * s * 0.30,
                                by - math.sin(math.radians(128)) * s * 0.30 - 0.02 * s))
-        elif ttype == "whip":                  # 鼠：细长鞭尾
+        elif ttype == "plush":                 # 三花 / 白猫：蓬松粗尾（C3）
+            amp, freq, lift = _TAIL_MOOD.get(tail_mood, _TAIL_MOOD["calm"])
+            seg = ((0.0, 0.0), (-0.13, -0.06), (-0.20, -0.20), (-0.15, -0.34))
+            pts = []
+            for i, (dx, dy) in enumerate(seg):
+                w = i / (len(seg) - 1.0)
+                off = math.sin((tail_phase - w * 1.5) * freq) * 0.11 * s * amp * w
+                pts.append(QPointF(bx + dx * s + off,
+                                   by + dy * s + lift * s * w))
+            p.setPen(QPen(fd, max(3.0, s * 0.082), Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap))
+            for a, b in zip(pts[:-1], pts[1:]):
+                p.drawLine(a, b)
+            # 末端蓬松：几个重叠绒球
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(fl)
+            tx, ty = pts[-1].x(), pts[-1].y()
+            for ox, oy, rr in ((0.0, 0.0, 0.082), (-0.05, -0.04, 0.058),
+                               (0.05, -0.02, 0.052)):
+                p.drawEllipse(QRectF(tx + ox * s - rr * s, ty + oy * s - rr * s,
+                                     2 * rr * s, 2 * rr * s))
+        elif ttype == "whip":                  # 鼠 / 蓝猫 / 暹罗：细长鞭尾
             k = math.sin(tail_phase * 1.5)
             p.setPen(QPen(fd, max(1.2, s * 0.026), Qt.PenStyle.SolidLine,
                           Qt.PenCapStyle.RoundCap))
@@ -1003,7 +1032,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             bp = QPainterPath()
             bp.moveTo(bx0, y0)
             bp.quadTo((bx0 + bx1) / 2.0, (y0 + y1) / 2.0 - ehh * 0.32, bx1, y1)
-            p.setPen(_line(_mix(colors["line"], "#000000", 0.30), lw * 1.15))
+            p.setPen(_line(_mix(colors["line"], "#000000", 0.30), lw * 1.55))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawPath(bp)
 
@@ -1196,22 +1225,22 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor("#8EC9E8"))
         tp = QPainterPath()
-        tp.moveTo(tx, ty - 0.058 * s)
-        tp.quadTo(tx + 0.045 * s, ty + 0.012 * s, tx, ty + 0.058 * s)
-        tp.quadTo(tx - 0.045 * s, ty + 0.012 * s, tx, ty - 0.058 * s)
+        tp.moveTo(tx, ty - 0.072 * s)
+        tp.quadTo(tx + 0.056 * s, ty + 0.015 * s, tx, ty + 0.072 * s)
+        tp.quadTo(tx - 0.056 * s, ty + 0.015 * s, tx, ty - 0.072 * s)
         tp.closeSubpath()
         p.drawPath(tp)
         p.setBrush(QColor(255, 255, 255, 170))
-        p.drawEllipse(QRectF(tx - 0.021 * s, ty - 0.014 * s, 0.021 * s, 0.026 * s))
+        p.drawEllipse(QRectF(tx - 0.026 * s, ty - 0.018 * s, 0.026 * s, 0.032 * s))
     elif fx == "sweat":                    # 紧张：额头一颗汗
         sx = cx + 0.28 * s
         sy = cy - 0.38 * s + math.sin(t * 4.0) * 0.016 * s
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor("#A8DCEF"))
         sp = QPainterPath()
-        sp.moveTo(sx, sy - 0.050 * s)
-        sp.quadTo(sx + 0.038 * s, sy + 0.010 * s, sx, sy + 0.050 * s)
-        sp.quadTo(sx - 0.038 * s, sy + 0.010 * s, sx, sy - 0.050 * s)
+        sp.moveTo(sx, sy - 0.064 * s)
+        sp.quadTo(sx + 0.048 * s, sy + 0.013 * s, sx, sy + 0.064 * s)
+        sp.quadTo(sx - 0.048 * s, sy + 0.013 * s, sx, sy - 0.064 * s)
         sp.closeSubpath()
         p.drawPath(sp)
     elif fx == "anger":                    # 生气：额头井字符号
@@ -1283,6 +1312,14 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
                  cx - 0.48 * s, cy + 0.58 * s, 1.0, 0.0)
             R = (cx + sx, sy0, cx + 0.22 * s, cy + 0.72 * s - sway,
                  cx + 0.48 * s, cy + 0.58 * s, -1.0, 0.0)
+        if pose == "wave" and prop is None:         # 猴：右臂上举打招呼
+            R = (cx + sx, sy0, cx + 0.52 * s, cy + 0.10 * s,
+                 cx + 0.62 * s, cy - 0.24 * s, -0.35, -0.94)
+        elif pose == "wing" and prop is None:       # 鸡：双臂外展成翅膀
+            L = (cx - sx, sy0, cx - 0.52 * s, cy + 0.40 * s,
+                 cx - 0.72 * s, cy + 0.16 * s, -0.72, -0.70)
+            R = (cx + sx, sy0, cx + 0.52 * s, cy + 0.40 * s - sway,
+                 cx + 0.72 * s, cy + 0.16 * s, 0.72, -0.70)
         if excited and prop is None:                # 快下班：双手举起欢呼（掌心朝前）
             L = (cx - sx, sy0, cx - 0.54 * s, cy + 0.24 * s,
                  cx - 0.60 * s, cy + 0.30 * s, 0.0, -1.0)
@@ -1315,7 +1352,8 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
 
         # 道具（双手/单手），画在手臂之后、手掌之前
         if prop and prop != "scarf":
-            if prop in ("coffee", "coin"):
+            # C2：角色专属道具（奶酪/香蕉/虫子/竹子）一并纳入调用白名单
+            if prop in ("coffee", "coin", "cheese", "banana", "worm", "bamboo"):
                 _draw_prop(p, prop, cx, cy, s, colors)
             elif prop in ("bag", "fan", "umbrella"):
                 _draw_prop(p, prop, cx, cy, s, colors, side="R", wx=R[2], wy=R[3])
@@ -1343,6 +1381,8 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     if dim25:
         p.restore()          # 收尾视差倾斜/挤压变换
 
+    if pose in ("bow", "head_up"):
+        p.restore()          # C1：收尾姿态变换
     p.restore()
 
 
