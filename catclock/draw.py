@@ -11,7 +11,8 @@ from PyQt6.QtGui import (
 from . import data as D
 from .util import _mix, _q_luma
 from .data import (_HEAD, _EYE, _EYE_DEFAULT, _TAIL, _TAIL_MOOD, _HAND, _HAT,
-                   _HAT_EXT, _BODY_SHAPE, _TOP_EXT)
+                   _HAT_EXT, _BODY_SHAPE, _TOP_EXT, _FACE, _EYE_STYLE,
+                   _NOSE_STYLE, _POSE)
 
 CHARACTERS = D.CHARACTERS
 STYLES = D.STYLES
@@ -20,6 +21,58 @@ STYLES = D.STYLES
 from .gfx import _ease, _ease_out, _lod, _line, _mix, _q_luma
 from .parts import (_draw_paw, _draw_hand, _draw_arm, _draw_hat,
                     _draw_acc, _draw_prop)
+
+
+def _head_path(rect, face):
+    """A1：按脸型生成头部轮廓（默认 round = 椭圆）。
+
+    face 见 data._FACE：
+      wide  牛/猪/虎  下半更宽更饱满，头顶略收
+      long  马/蛇     修长窄脸，往下收
+      heart 猴        上宽下尖
+      puffy 羊        羊毛波浪边缘
+      sharp 鸡        上圆下尖，往喙收
+      brow  龙        眉骨处两侧凸起
+    """
+    if not face or face == "round":
+        pp = QPainterPath()
+        pp.addEllipse(rect)
+        return pp
+    cx0, cy0 = rect.center().x(), rect.center().y()
+    rx, ry = rect.width() / 2.0, rect.height() / 2.0
+    N = 96
+    pts = []
+    for i in range(N):
+        a = 2.0 * math.pi * i / N
+        ca, sa = math.cos(a), math.sin(a)
+        kx, ky = 1.0, 1.0
+        up = max(0.0, -sa)          # 上半量 0..1
+        dn = max(0.0, sa)           # 下半量 0..1
+        if face == "wide":
+            kx = 1.0 + 0.13 * dn - 0.05 * up
+            ky = 1.0 + 0.04 * dn
+        elif face == "long":
+            kx = 1.0 - 0.20 * dn
+            ky = 1.0 + 0.06 * dn
+        elif face == "heart":
+            kx = 1.0 - 0.30 * dn
+            if sa < -0.55:                      # 顶部中央微凹，形成心形
+                ky = 1.0 - 0.10 * (abs(sa) - 0.55) / 0.45
+        elif face == "puffy":
+            w = math.sin(a * 7.0) * 0.035 + math.sin(a * 11.0) * 0.022
+            kx = ky = 1.0 + w
+        elif face == "sharp":
+            kx = 1.0 - 0.26 * dn
+            ky = 1.0 + 0.05 * dn
+        elif face == "brow":
+            if sa < -0.25 and abs(ca) > 0.40:   # 眼上方两侧眉骨
+                ky = 1.0 + 0.08 * (abs(ca) - 0.40) / 0.60
+        pts.append(QPointF(cx0 + ca * rx * kx, cy0 + sa * ry * ky))
+    pp = QPainterPath(pts[0])
+    for pt in pts[1:]:
+        pp.lineTo(pt)
+    pp.closeSubpath()
+    return pp
 
 
 def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False,
@@ -104,6 +157,9 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     hw, hh, hdy = _HEAD.get(shape, (0.88, 0.86, 0.0))   # 物种头型：宽 / 高 / 中心偏移
     head_rect = QRectF(cx - hw / 2 * s, cy + (hdy - hh / 2) * s, hw * s, hh * s)
     head_top = head_rect.top()
+    # A1：脸型轮廓（宽扁 / 修长 / 心形 / 蓬松 / 尖脸 / 眉骨）
+    face = _FACE.get(shape, "round")
+    head_path = _head_path(head_rect, face)
 
     # ---- 尾巴（最底层；按物种分样式，不再所有角色共用猫尾） ----
     if tail_phase is not None:
@@ -278,8 +334,22 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
                           cx + sign * 0.17 * s, cy - 0.40 * s)
                 h.closeSubpath()
                 p.setPen(outline)
-                p.setBrush(QColor(horn_c))
+                # A4：角面立体渐变（根亮尖沉）+ 外侧一道高光，不再是平涂色块
+                g = QLinearGradient(cx + sign * 0.20 * s, cy - 0.28 * s,
+                                    cx + sign * 0.52 * s, cy - 0.76 * s)
+                g.setColorAt(0, QColor(horn_c))
+                g.setColorAt(0.55, QColor(horn_c))
+                g.setColorAt(1, _mix(horn_c, "#8A7460", 0.42))
+                p.setBrush(g)
                 p.drawPath(h)
+                p.setPen(_line(QColor(255, 255, 255, 120), lw * 1.30))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                hl = QPainterPath()
+                hl.moveTo(cx + sign * 0.26 * s, cy - 0.36 * s)
+                hl.cubicTo(cx + sign * 0.44 * s, cy - 0.48 * s,
+                           cx + sign * 0.54 * s, cy - 0.62 * s,
+                           cx + sign * 0.49 * s, cy - 0.71 * s)
+                p.drawPath(hl)
                 # 白色尖端
                 p.setPen(Qt.PenStyle.NoPen)
                 p.setBrush(QColor(tip_c))
@@ -311,8 +381,22 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
                                base_x, base_y)
                 branch.closeSubpath()
                 p.setPen(outline)
-                p.setBrush(QColor(horn_c))
+                # A4：龙角用珍珠渐变（根暖尖冷）+ 角身高光，有玉质感
+                g = QLinearGradient(base_x, base_y,
+                                    base_x + sign * 0.14 * s, cy - 0.74 * s)
+                g.setColorAt(0, QColor("#FFF8E4"))
+                g.setColorAt(0.50, QColor(horn_c))
+                g.setColorAt(1, _mix(horn_c, "#9AAE9E", 0.48))
+                p.setBrush(g)
                 p.drawPath(branch)
+                p.setPen(_line(QColor(255, 255, 255, 150), lw * 1.15))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                hl2 = QPainterPath()
+                hl2.moveTo(base_x + sign * 0.03 * s, base_y - 0.03 * s)
+                hl2.cubicTo(base_x + sign * 0.09 * s, cy - 0.47 * s,
+                            base_x + sign * 0.07 * s, cy - 0.60 * s,
+                            base_x + sign * 0.025 * s, cy - 0.69 * s)
+                p.drawPath(hl2)
                 # 圆润角尖
                 p.setPen(Qt.PenStyle.NoPen)
                 p.setBrush(QColor(horn_c))
@@ -365,6 +449,9 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(colors["ear_in"]))
             p.drawEllipse(QRectF(-0.046 * s, -0.38 * s, 0.092 * s, 0.34 * s))
+            # A4：内耳再叠一层亮粉心，兔耳不再是一片平涂
+            p.setBrush(_mix(colors["ear_in"], "#FFFFFF", 0.50))
+            p.drawEllipse(QRectF(-0.026 * s, -0.345 * s, 0.052 * s, 0.25 * s))
             p.restore()
         elif eshape == "tiger":               # 虎：小圆耳，后压
             ecx, ecy = cx + sign * 0.32 * s, cy - 0.32 * s
@@ -567,12 +654,11 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     grad.setColorAt(1, QColor(colors["fur_d"]))
     p.setPen(outline)
     p.setBrush(grad)
-    p.drawEllipse(head_rect)
+    p.drawPath(head_path)
 
     # ---- 斑块 ----
     if colors.get("patches"):
-        head_clip = QPainterPath()
-        head_clip.addEllipse(head_rect)
+        head_clip = QPainterPath(head_path)
         p.setClipPath(head_clip)
         for pt in colors["patches"]:
             p.setPen(Qt.PenStyle.NoPen)
@@ -646,8 +732,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             p.drawEllipse(QRectF(cx + dx * s - r * s, cy + dy * s - r * s,
                                  2 * r * s, 2 * r * s))
     if shape == "tiger":
-        tiger_clip = QPainterPath()
-        tiger_clip.addEllipse(head_rect)
+        tiger_clip = QPainterPath(head_path)
         p.setClipPath(tiger_clip)
         tc = _mix(colors["tabby_c"], "#3E2A1A", 0.35)
         p.setPen(_line(QColor(tc), lw * 2.20))
@@ -696,8 +781,7 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         p.drawPath(heart)
 
     # ---- 下巴阴影（贴合头部的下缘暗部） ----
-    head_clip = QPainterPath()
-    head_clip.addEllipse(head_rect)
+    head_clip = QPainterPath(head_path)
     p.setClipPath(head_clip)
     chin = QColor(colors["fur_d"])
     chin.setAlpha(130)
@@ -712,13 +796,14 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
     rg.setColorAt(1, QColor(255, 255, 255, 0))
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(rg)
-    p.drawEllipse(head_rect)
+    p.drawPath(head_path)
     if lod >= 1:
         # 上缘内高光（rim light）：暗色角色靠它从背景里「浮」出来
         ins = lw * 0.85
         p.setPen(_line(QColor(255, 255, 255, int(58 * rim)), lw * 0.85, join=False))
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawEllipse(head_rect.adjusted(ins, ins * 0.55, -ins, -ins * 1.75))
+        p.drawPath(_head_path(head_rect.adjusted(ins, ins * 0.55, -ins, -ins * 1.75),
+                              face))
     p.setClipping(False)
 
     # ---- 腮红 ----
@@ -768,10 +853,21 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
                           QPointF(x1, ye))
                 p.drawPath(wp)
 
-    # ---- 眼睛（恢复 v1.4 柔和虹膜风格，保留 A2 眼睑 + A6 眼神跟随） ----
+    # ---- 眼睛（A2 眼型物种化；保留 v1.4 柔和虹膜 + A2 眼睑 + A6 眼神跟随） ----
     eye_dy, ewk, ehk, slit = _EYE.get(shape, _EYE_DEFAULT)
     eye_y = cy + (-0.02 + eye_dy) * s
     ew2, ehh = ewk * s, ehk * s
+    # A2：按物种微调眼型
+    eye_style = _EYE_STYLE.get(shape, "default")
+    if eye_style == "red_big":          # 兔：更大更圆，虹膜偏红
+        ew2, ehh = ew2 * 1.18, ehh * 1.15
+    elif eye_style == "squint":         # 羊：眯缝眼
+        ehh = ehh * 0.62
+    elif eye_style == "bright":         # 鸡 / 鼠：小而亮
+        ew2, ehh = ew2 * 0.92, ehh * 0.94
+    eye_c = colors["eye"]
+    if eye_style == "red_big":
+        eye_c = _mix(colors["eye"], "#D9546E", 0.55)
     lid = max(0.0, min(1.0, float(eye_lid or 0.0)))
     # 兼容旧调用：没传 eye_lid 但传了 blink/sleepy 时，按全闭处理
     if lid < 0.02 and (blink or sleepy):
@@ -816,12 +912,12 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             p.setBrush(g)
         else:
             g = QLinearGradient(ex, eye_y - ehh / 2, ex, eye_y + ehh / 2)
-            g.setColorAt(0, QColor(colors["eye"]))
-            g.setColorAt(1, _mix(colors["eye"], "#14100E", 0.5))
+            g.setColorAt(0, QColor(eye_c))
+            g.setColorAt(1, _mix(eye_c, "#14100E", 0.5))
             p.setBrush(g)
         p.drawEllipse(QRectF(ex - ew2 + lx, eye_y - ehh / 2 + ly, 2 * ew2, ehh))
         # 虹膜外圈细眼线
-        p.setPen(_line(_mix(colors["eye"], "#14100E", 0.55), lw * 0.72, join=False))
+        p.setPen(_line(_mix(eye_c, "#14100E", 0.55), lw * 0.72, join=False))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawEllipse(QRectF(ex - ew2 + lx, eye_y - ehh / 2 + ly, 2 * ew2, ehh))
         p.setPen(Qt.PenStyle.NoPen)
@@ -848,6 +944,16 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             if lod >= 1:
                 p.drawEllipse(QRectF(ex - ew2 * 0.70 + lx, eye_y + ehh * 0.10 + ly,
                                      ew2 * 0.35, ehh * 0.13))
+            if eye_style == "bright":     # 鸡 / 鼠：再点一颗亮斑，眼神更锐利
+                p.setBrush(QColor(255, 255, 255, 220))
+                p.drawEllipse(QRectF(ex - ew2 * 0.28 + lx, eye_y + ehh * 0.28 + ly,
+                                     ew2 * 0.30, ehh * 0.16))
+        # A2：droopy —— 下眼睑弧（外角下垂，看起来温柔没脾气）
+        if eye_style == "droopy":
+            p.setPen(_line(_mix(eye_c, "#14100E", 0.45), lw * 0.85))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawArc(QRectF(ex - ew2 * 1.12, eye_y + ehh * 0.06,
+                             ew2 * 2.24, ehh * 1.05), 20 * 16, 140 * 16)
         # A2：上眼睑（柔和覆盖，laugh 弧形的闭合线）
         if lid > 0.02:
             cover = ehh * lid
@@ -921,6 +1027,9 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         for sign in (-1, 1):
             p.drawEllipse(QRectF(cx + sign * 0.085 * s - 0.030 * s, cy + 0.135 * s,
                                  0.060 * s, 0.075 * s))
+        # A3：鼻头湿润高光（左上受光，与角色统一）
+        p.setBrush(QColor(255, 255, 255, 135))
+        p.drawEllipse(QRectF(cx - 0.105 * s, cy + 0.100 * s, 0.080 * s, 0.045 * s))
         p.setPen(mouth_pen)
         p.drawArc(QRectF(cx - 0.06 * s, cy + 0.285 * s, 0.12 * s, 0.08 * s), 200 * 16, 140 * 16)
     elif shape == "horse":               # 马：长脸底部宽鼻
@@ -933,6 +1042,10 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         for sign in (-1, 1):
             p.drawEllipse(QRectF(cx + sign * 0.062 * s - 0.028 * s, cy + 0.225 * s,
                                  0.056 * s, 0.070 * s))
+        # A3：鼻头湿润高光
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(255, 255, 255, 130))
+        p.drawEllipse(QRectF(cx - 0.085 * s, cy + 0.200 * s, 0.070 * s, 0.038 * s))
         p.setPen(mouth_pen)
         p.drawArc(QRectF(cx - 0.05 * s, cy + 0.345 * s, 0.10 * s, 0.07 * s), 200 * 16, 140 * 16)
     elif shape == "rabbit":              # 兔：小鼻 + 门牙
@@ -944,6 +1057,14 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         nose.lineTo(cx, cy + 0.160 * s)
         nose.closeSubpath()
         p.drawPath(nose)
+        # A3：三瓣嘴 —— 鼻尖下方的 Y 形上唇分叉
+        p.setPen(_line(line_c, lw * 1.05))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawLine(QPointF(cx, cy + 0.158 * s), QPointF(cx, cy + 0.192 * s))
+        p.drawArc(QRectF(cx - 0.070 * s, cy + 0.170 * s, 0.070 * s, 0.055 * s),
+                  200 * 16, 140 * 16)
+        p.drawArc(QRectF(cx, cy + 0.170 * s, 0.070 * s, 0.055 * s), 200 * 16, 140 * 16)
+        p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor("#FFFFFF"))
         p.setPen(_line(line_c, lw * 0.85))
         p.drawRoundedRect(QRectF(cx - 0.052 * s, cy + 0.195 * s, 0.104 * s, 0.085 * s),

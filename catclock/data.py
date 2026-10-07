@@ -227,13 +227,15 @@ CHARACTERS = {
         rim=0.75,
     ),
     # ==================== 十二生肖 ====================
+    # D3：原冷灰偏暗，提亮并加一点蓝紫饱和，缩略图里不再灰扑扑
     "鼠": dict(
-        fur="#9AA3B2", fur_d="#7E8798", fur_l="#C9CFDA", line="#6A7284",
+        fur="#AEB8CC", fur_d="#8E9AB2", fur_l="#DAE0EC", line="#707C94",
         ear_in="#F5B8C4", nose="#F08CA0", eye="#3A3230",
         tabby=False, patches=(), ears=(None, None), shape="rat",
     ),
+    # D3：米色偏灰 → 暖黄奶油色，更软糯
     "牛": dict(
-        fur="#E8DCC8", fur_d="#D4C4A8", fur_l="#F7F0E2", line="#B5A284",
+        fur="#F2E4C8", fur_d="#DCC79E", fur_l="#FCF5E6", line="#B89A6E",
         ear_in="#E8B8B0", nose="#C9908A", eye="#4A3B30",
         tabby=False, patches=(), ears=(None, None), shape="ox",
     ),
@@ -257,9 +259,10 @@ CHARACTERS = {
         ear_in="#B8DCA0", nose="#648F48", eye="#3E5A2E",
         tabby=False, patches=(), ears=(None, None), shape="snake",
     ),
+    # D3：棕调提亮，鬃毛改用暖深棕而不是近黑的冷棕
     "马": dict(
-        fur="#C9A27E", fur_d="#B08A64", fur_l="#E8D0B8", line="#96714E",
-        ear_in="#DDB8A0", nose="#8A6A58", eye="#4A3628", mane="#6A4E38",
+        fur="#D8AE80", fur_d="#BC8F62", fur_l="#F0D8BC", line="#96714E",
+        ear_in="#DDB8A0", nose="#8A6A58", eye="#4A3628", mane="#7A5440",
         tabby=False, patches=(), ears=(None, None), shape="horse",
     ),
     "羊": dict(
@@ -379,6 +382,83 @@ def wmo_kind(code):
 _TOP_EXT = {"rabbit": 0.86, "ox": 0.76, "dragon": 0.78,
            "sheep": 0.72, "rooster": 0.64, "horse": 0.84,
            "monkey": 0.80, "dog": 0.72, "rat": 0.80}
+
+# ======================================================================
+# 1.6 角色差异化配置（脸型 / 眼型 / 鼻型 / 姿势 / 道具 / 分组）
+# 说明：这里全部按 shape 查表；8 个猫种 shape 为 None，走默认值即可。
+# ======================================================================
+
+# A1：脸型（默认 round = 圆润椭圆）
+#   wide  = 宽扁（牛/猪）；long = 修长收窄（马）；heart = 上宽下尖（猴）
+#   puffy = 蓬松波浪（羊）；sharp = 上圆下尖（鸡）；brow = 带眉骨（龙）
+_FACE = {
+    "ox": "wide", "pig": "wide", "tiger": "wide",
+    "horse": "long", "snake": "long",
+    "monkey": "heart",
+    "sheep": "puffy",
+    "rooster": "sharp",
+    "dragon": "brow",
+}
+
+# A2：眼型（默认 default = 柔和虹膜）
+#   red_big = 大而圆带红调（兔）；slit = 竖瞳（龙/蛇）
+#   droopy  = 下垂温柔眼（狗/牛/马）；squint = 眯缝眼（羊）
+#   bright  = 锐利小眼（鸡/鼠）
+_EYE_STYLE = {
+    "rabbit": "red_big",
+    "dragon": "slit", "snake": "slit",
+    "dog": "droopy", "ox": "droopy", "horse": "droopy",
+    "sheep": "squint",
+    "rooster": "bright", "rat": "bright",
+}
+
+# A3：鼻型（默认 default = 小三角）
+#   snout = 湿润大黑鼻（狗）；pig = 拱鼻（猪）；wide = 宽鼻带鼻孔（牛/马）
+#   tri   = 三瓣嘴（兔）；beak = 尖喙（鸡）
+_NOSE_STYLE = {
+    "dog": "snout",
+    "pig": "pig",
+    "ox": "wide", "horse": "wide",
+    "rabbit": "tri",
+    "rooster": "beak",
+}
+
+# C1：生肖专属姿势（默认 None = 标准站姿）
+#   tongue = 吐舌（狗）；wave = 举手（猴）；wing = 展翅（鸡）
+#   bow    = 低头（羊）；head_up = 抬头（龙/蛇）
+_POSE = {
+    "dog": "tongue",
+    "monkey": "wave",
+    "rooster": "wing",
+    "sheep": "bow",
+    "dragon": "head_up", "snake": "head_up",
+}
+
+# C2：角色专属手持道具（默认 None；天气道具优先级更高）
+_CHAR_PROP = {
+    "rat": "cheese",
+    "monkey": "banana",
+    "rooster": "worm",
+    "panda": "bamboo",
+}
+
+# E2：角色分组（设置窗口 / 右键菜单按组展示）
+CHAR_GROUPS = ("猫族", "十二生肖", "特殊")
+
+_CHAR_GROUPS = {
+    "猫族": ("橘猫", "奶牛猫", "黑猫", "三花猫", "白猫", "蓝猫", "暹罗猫", "虎斑猫"),
+    "十二生肖": ("鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"),
+    "特殊": ("熊猫",),
+}
+
+
+def group_of(name):
+    """E2：返回角色所属分组名，未知角色归入「特殊」。"""
+    for g, names in _CHAR_GROUPS.items():
+        if name in names:
+            return g
+    return "特殊"
+
 
 # 各物种身体形态（默认 round = 圆润标准）
 _BODY_SHAPE = {"horse": "long", "snake": "long", "ox": "wide", "pig": "wide",
