@@ -442,9 +442,10 @@ class CatClock(_PaintMixin, _MenuMixin, _NotifyMixin, _InteractMixin, QWidget):
         now = datetime.now()
         w = self.weather
         wx = "%s %s℃" % (w.get("text", ""), w.get("temp", "")) if w else "未知"
-        return "%s %s，天气%s，计划 %s 下班，猫叫%s" % (
-            now.strftime("%m月%d日 %H:%M"), mood.WEEKDAY_CN[now.weekday()],
-            wx, self.cfg.get("end", "18:00"), self.cfg.get("char", "橘猫"))
+        return "%s %s，天气%s，计划 %s 下班，猫的品种：%s" \
+               "（文案里不要出现品种名，用「我」或「本喵」自称）" % (
+                   now.strftime("%m月%d日 %H:%M"), mood.WEEKDAY_CN[now.weekday()],
+                   wx, self.cfg.get("end", "18:00"), self.cfg.get("char", "橘猫"))
 
     def _on_llm(self, lines):
         if lines:

@@ -6,7 +6,7 @@
 
 ![CatClock 预览](preview_states.png)
 
-- 当前版本：`1.6.1`
+- 当前版本：`1.6.2`
 - 下载地址：<https://github.com/Xingsenya/CatClock/releases>（打 tag 后由 GitHub Actions 自动打包发布）
 - 建库与发版流程：见 [GITHUB_SETUP.md](GITHUB_SETUP.md)
 
