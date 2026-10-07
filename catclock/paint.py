@@ -61,10 +61,16 @@ class _PaintMixin:
         too_hot = wtemp is not None and wtemp >= 34 and phase == "work"
         too_cold = wtemp is not None and wtemp <= 0
         shake = math.sin(self.t0 * 42) * 1.6 if (thunder or too_cold) else 0
+        # A6：眼神跟随（比原来灵敏）+ 偶尔快速扫视（saccade，由 app 维护）
         cur = QCursor.pos()
         s_f = float(self.cfg.get("scale", 1.0))
-        look = ((cur.x() - (self.x() + ccx * s_f)) / (160.0 * s_f),
-                (cur.y() - (self.y() + ccy * s_f)) / (160.0 * s_f))
+        look = ((cur.x() - (self.x() + ccx * s_f)) / (110.0 * s_f),
+                (cur.y() - (self.y() + ccy * s_f)) / (110.0 * s_f))
+        sac = getattr(self, "sac", None)
+        if sac:
+            k = math.sin(min(1.0, (self.t0 - sac[2]) / 0.28) * math.pi)
+            look = (max(-1.0, min(1.0, look[0] + sac[0] * k)),
+                    max(-1.0, min(1.0, look[1] + sac[1] * k)))
         mood = None if mini else (self.idle[0] if self.idle else None)
         action = self.action if not mini else None
         action_k = 0.0
@@ -84,14 +90,52 @@ class _PaintMixin:
         prop = self._prop_now()
         # E3：鼠标停在猫身上时轻微抬头（配合爪型光标，像在看你）
         lift = -cs * 0.025 if self.hover_cat else 0.0
+        # A2：眼睑 —— 眨眼是「闭上再睁开」的过程（sin 曲线），犯困半闭，被摸舒服眯眼
+        eye_lid = 0.0
+        if self.blink_t < 0.18 and not still:
+            eye_lid = math.sin((self.blink_t / 0.18) * math.pi)
+        if meowing:
+            eye_lid = max(eye_lid, 0.62)
+        elif sleepy:
+            eye_lid = max(eye_lid, 0.48)
+        # C1：情绪口型（心情打卡 > 快下班的兴奋）
+        ms = getattr(self, "mood_score", None)
+        mouth = None
+        if ms == 2:
+            mouth = "smile"
+        elif ms == 0:
+            mouth = "frown"
+        if excited and ms != 0:
+            mouth = "smile"
+        elif sleepy and ms is None:
+            mouth = "flat"
+        # C2：换语录后 1.4 秒内张嘴「说话」，喵叫/呼噜时也张
+        mo = 0.0
+        if self.quote_t < 1.4:
+            mo = math.sin(self.quote_t / 1.4 * math.pi) * 0.75
+        if self.meow_bubble_t < 1.2:
+            mo = max(mo, 0.55)
+        if meowing:
+            mo = max(mo, 0.45)
+        # E4：尾巴情绪（开心竖起快抖 / 害怕夹紧 / CPU 高了甩尾 / 专注慢摆）
+        if meowing or excited:
+            tail_mood = "happy"
+        elif thunder or too_hot:
+            tail_mood = "scared"
+        elif (self.sense or {}).get("cpu", 0) >= 88:
+            tail_mood = "angry"
+        elif sleepy:
+            tail_mood = "focus"
+        else:
+            tail_mood = "calm"
         # C1：静止时走缓存（见 _draw_cat_cached），动画期间照常逐帧画
         cat_kw = dict(
-            blink=(self.blink_t < 0.18 or meowing) and not still,
             excited=excited, sleepy=sleepy,
             scared=thunder or too_hot, look=look, action=action,
             action_k=action_k, tail_phase=tail_phase, t=self.t0, dim25=dim25,
             pet_k=self.meow_t if self.meow_t < 1.0 else None, ear_tw=ear_tw,
-            body=body, prop=prop, hat=self._effective_hat(), acc=self._effective_acc())
+            body=body, prop=prop, hat=self._effective_hat(), acc=self._effective_acc(),
+            eye_lid=eye_lid, mouth=mouth, mouth_open=mo, tail_mood=tail_mood)
         self._draw_cat_cached(p, ccx + shake, ccy + lift, cs,
                               self.char_colors(), **cat_kw)
 
@@ -326,6 +370,11 @@ class _PaintMixin:
             None if pk is None else round(float(pk), 2),
             None if ear is None else (ear[0], round(float(ear[1]), 2)),
             round(float(look[0]), 1), round(float(look[1]), 1),   # 瞳孔跟随量化
+            # 1.5：眼睑 / 口型 / 张嘴 / 尾巴情绪 也会影响外观，必须进 key
+            round(float(kw.get("eye_lid") or 0.0), 2),
+            kw.get("mouth"),
+            round(float(kw.get("mouth_open") or 0.0), 1),
+            kw.get("tail_mood"),
             round(float(self.cfg.get("scale", 1.0)), 2),
             round(float(self.devicePixelRatioF() or 1.0), 2),
         )

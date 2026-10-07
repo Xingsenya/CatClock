@@ -103,6 +103,10 @@ class CatClock(_PaintMixin, _MenuMixin, _NotifyMixin, _InteractMixin, QWidget):
         self.hover_cat = False     # E3：鼠标是否停在猫身上
         self._paw_cursor = None    # E3：爪型光标（懒加载）
         self._tray_min_mark = None  # F4：托盘图标上已渲染的分钟数
+        self.sac = None            # A6：扫视 (dx, dy, 起始 t0)，None=当前没在扫视
+        self.sac_next = 6.0        # A6：下次扫视的 t0
+        self.mood_score = None     # 1.5：今日心情（0 累 / 1 还行 / 2 开心），驱动口型
+        self._mood_ts = -999.0     # 1.5：上次读心情的 t0
 
         # ---- 情境感知 / 节日 / 心情 / 智能语录 ----
         self.sense = {}            # sense.sample() 结果（每 tick 刷新，内部节流）
@@ -550,6 +554,19 @@ class CatClock(_PaintMixin, _MenuMixin, _NotifyMixin, _InteractMixin, QWidget):
             self.idle = None
             self.action = None
             self.idle_next = self.t0 + random.uniform(20, 45)
+        # A6：随机扫视 —— 每 3.5~9 秒眼睛快速瞟一下别处（0.28 秒来回）
+        if self.t0 >= self.sac_next:
+            self.sac = (random.uniform(-1.0, 1.0), random.uniform(-0.6, 0.4), self.t0)
+            self.sac_next = self.t0 + random.uniform(3.5, 9.0)
+        if self.sac and self.t0 - self.sac[2] > 0.28:
+            self.sac = None
+        # 1.5：今日心情（驱动口型），启动就读一次，之后每 5 分钟刷新
+        if self.mood_score is None or self.t0 - self._mood_ts > 300.0:
+            self._mood_ts = self.t0
+            try:
+                self.mood_score = mood.today()
+            except Exception:
+                self.mood_score = None
         # 2.5D：随机耳抖（每 25-60 秒一次，每次 0.6 秒）
         if self.ear_tw and self.t0 - self.ear_tw[1] > 0.6:
             self.ear_tw = None

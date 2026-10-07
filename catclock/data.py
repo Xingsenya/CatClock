@@ -430,6 +430,16 @@ _TAIL = {"rabbit": "puff", "sheep": "puff", "dog": "curl_up", "pig": "curl",
          "horse": "brush", "ox": "brush", "dragon": "fin", "snake": "coil",
          "rooster": "feather", "rat": "whip", "monkey": "long"}
 
+# E4：尾巴情绪 —— (振幅倍率, 频率倍率, 尾尖抬升)
+# lift 为负 = 尾巴竖得更高（开心），为正 = 往下夹（害怕）
+_TAIL_MOOD = {
+    "calm":   (1.00, 1.00, 0.000),   # 平时：慢摆
+    "happy":  (1.55, 2.60, -0.105),  # 开心/被摸：竖起快抖
+    "angry":  (1.90, 0.75, 0.020),   # 生气：大幅慢甩
+    "scared": (0.30, 3.60, 0.150),   # 害怕：夹起来小幅高频抖
+    "focus":  (0.55, 0.55, -0.010),  # 专注：几乎不动，尾尖轻点
+}
+
 # 各物种的手型（默认 paw = 猫爪；snake 无手，连手臂一起省略）
 _HAND = {"rat": "fingers", "ox": "hoof", "tiger": "paw", "rabbit": "puff_paw",
          "dragon": "claw", "snake": "none", "horse": "hoof", "sheep": "hoof",
