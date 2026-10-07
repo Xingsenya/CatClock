@@ -33,6 +33,7 @@ clean_log.txt
 dbg_*.txt
 review_*.png
 eye_only_check.png
+eyelid_*.png
 _kh_tmp
 .memory/
 .workbuddy/
