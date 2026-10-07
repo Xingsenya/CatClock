@@ -1,0 +1,33 @@
+# PyInstaller 构建产物
+build*/
+dist/
+*.spec
+!CatClock.spec          # 打包配置本身要入库（CI 依赖它）
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 本地测试残留
+run*.png
+preview_bubbles.png
+run_log.txt
+t_*.py
+bisect_log.txt
+fh_dump.txt
+patch_count.txt
+dbg_out.txt
+ps_out.txt
+ps_err.txt
+dist_dbg/
+build_dbg/
+
+# 备份与临时日志
+*.bak
+*.bak.*
+smoke_*.txt
+clean_log.txt
+dbg_*.txt
+review_*.png
+_kh_tmp
+.memory/
