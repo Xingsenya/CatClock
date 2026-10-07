@@ -128,6 +128,30 @@ class _PaintMixin:
             tail_mood = "focus"
         else:
             tail_mood = "calm"
+        # B1：眉形（开心/被摸上扬；不开心下压；其余不画）
+        if excited or meowing:
+            brow = "up"
+        elif mouth == "frown":
+            brow = "down"
+        else:
+            brow = None
+        # B3：腮红强度（被摸最红，其次开心，微笑淡红，平时若有若无）
+        if meowing:
+            blush = 1.0
+        elif excited:
+            blush = 0.75
+        elif mouth == "smile":
+            blush = 0.45
+        else:
+            blush = 0.12
+        # B4：情绪特效（雷雨天紧张出汗 / CPU 飙高生气 / 心情很差委屈落泪）
+        fx = None
+        if thunder or too_hot:
+            fx = "sweat"
+        elif tail_mood == "angry":
+            fx = "anger"
+        elif mouth == "frown" and ms == 0:
+            fx = "tear"
         # C1：静止时走缓存（见 _draw_cat_cached），动画期间照常逐帧画
         cat_kw = dict(
             excited=excited, sleepy=sleepy,
@@ -135,7 +159,8 @@ class _PaintMixin:
             action_k=action_k, tail_phase=tail_phase, t=self.t0, dim25=dim25,
             pet_k=self.meow_t if self.meow_t < 1.0 else None, ear_tw=ear_tw,
             body=body, prop=prop, hat=self._effective_hat(), acc=self._effective_acc(),
-            eye_lid=eye_lid, mouth=mouth, mouth_open=mo, tail_mood=tail_mood)
+            eye_lid=eye_lid, mouth=mouth, mouth_open=mo, tail_mood=tail_mood,
+            brow=brow, blush=blush, fx=fx)
         self._draw_cat_cached(p, ccx + shake, ccy + lift, cs,
                               self.char_colors(), **cat_kw)
 
@@ -375,6 +400,10 @@ class _PaintMixin:
             kw.get("mouth"),
             round(float(kw.get("mouth_open") or 0.0), 1),
             kw.get("tail_mood"),
+            # 1.6：表情系统（眉形 / 腮红 / 情绪特效）同样影响外观
+            kw.get("brow"),
+            round(float(kw.get("blush") or 0.0), 2),
+            kw.get("fx"),
             round(float(self.cfg.get("scale", 1.0)), 2),
             round(float(self.devicePixelRatioF() or 1.0), 2),
         )

@@ -79,7 +79,8 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
              scared=False, look=(0.0, 0.0), mood=None, action=None, action_k=0.0,
              tail_phase=None, t=0.0, dim25=False, pet_k=None, ear_tw=None,
              body=False, prop=None, hat="auto", acc="auto",
-             eye_lid=0.0, mouth=None, mouth_open=0.0, tail_mood="calm"):
+             eye_lid=0.0, mouth=None, mouth_open=0.0, tail_mood="calm",
+             brow=None, blush=0.0, fx=None):
     """画一只可爱的猫脑袋。s 为整体直径；look 为瞳孔偏移(-1..1)；mood 已弃用，请用 action
     action: 待机动作（stretch/yawn/wave/tail_wag），action_k 为 0..1 进度
     tail_phase 摇尾；dim25=2.5D 模式；pet_k 摸猫进度 0..1；ear_tw=(方向±1, 进度0..1) 耳抖
@@ -89,7 +90,13 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
       eye_lid   : 眼睑闭合度 0=睁开 1=全闭（A2，眨眼/犯困走同一条曲线）
       mouth     : 情绪口型 'smile' / 'flat' / 'frown' / None=经典 W 嘴（C1）
       mouth_open: 张嘴程度 0..1（C2，说话 / 喵叫时开合）
-      tail_mood : 'calm' / 'happy' / 'angry' / 'scared' / 'focus'（E4）"""
+      tail_mood : 'calm' / 'happy' / 'angry' / 'scared' / 'focus'（E4）
+
+    1.6 新增（表情系统）：
+      brow      : 眉形 None=不画 / 'up'=上扬（开心）/ 'down'=下压（不开心）
+      blush     : 腮红强度 0..1（B3，开心/害羞/被摸时加深）
+      fx        : 情绪特效 None / 'tear'=委屈泪滴 / 'sweat'=紧张汗滴
+                  / 'anger'=生气井字符号"""
     if colors is None:
         colors = CHARACTERS["橘猫"]
     p.save()
@@ -806,10 +813,14 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
                               face))
     p.setClipping(False)
 
-    # ---- 腮红 ----
-    p.setBrush(QColor(255, 150, 170, 105))
+    # ---- 腮红（B3：强度随情绪，开心/害羞/被摸时会红） ----
+    bl = max(0.0, min(1.0, float(blush or 0.0)))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(255, 150, 170, int(100 + 100 * bl)))
+    bw, bh = 0.17 + 0.05 * bl, 0.105 + 0.032 * bl
     for sign in (-1, 1):
-        p.drawEllipse(QRectF(cx + sign * 0.30 * s - 0.085 * s, cy + 0.04 * s, 0.17 * s, 0.105 * s))
+        p.drawEllipse(QRectF(cx + sign * 0.30 * s - bw * s / 2, cy + 0.04 * s,
+                             bw * s, bh * s))
 
     # ---- 头顶帽子：auto 按物种默认，可显式指定或 none ----
     hat_style = _HAT.get(shape, "none") if hat in (None, "auto") else hat
@@ -976,6 +987,25 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
             ep.quadTo(ex, eye_y - ehh * 0.52 + cover + ehh * 0.12 * (1.0 - lid),
                       ex + ew2 * 1.10, eye_y - ehh * 0.52 + cover)
             p.drawPath(ep)
+
+    # ---- B1：眉毛（眉形随情绪：up 上扬 / down 下压 / flat 平静） ----
+    if brow and lid < 0.90:
+        for sign in (-1, 1):
+            ex = cx + sign * 0.185 * s
+            by = eye_y - ehh * 1.05
+            bx0, bx1 = ex - ew2 * 1.05, ex + ew2 * 1.05
+            if brow == "up":                       # 开心 / 惊喜：眉尾上扬
+                y0, y1 = by + ehh * 0.16, by - ehh * 0.34
+            elif brow == "down":                   # 不开心 / 委屈：眉头下压
+                y0, y1 = by - ehh * 0.30, by + ehh * 0.24
+            else:                                  # flat：平静
+                y0 = y1 = by
+            bp = QPainterPath()
+            bp.moveTo(bx0, y0)
+            bp.quadTo((bx0 + bx1) / 2.0, (y0 + y1) / 2.0 - ehh * 0.32, bx1, y1)
+            p.setPen(_line(_mix(colors["line"], "#000000", 0.30), lw * 1.15))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawPath(bp)
 
     # ---- 鼻子 & 嘴（按物种分形状；打哈欠统一 O 形嘴） ----
     mouth_pen = _line(line_c, lw * 1.30)
@@ -1158,6 +1188,42 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor("#8EC9E8"))
         p.drawEllipse(QRectF(cx + 0.24 * s, cy - 0.42 * s, 0.10 * s, 0.14 * s))
+
+    # ---- B4：情绪特效（泪滴 / 汗滴 / 生气井字） ----
+    if fx == "tear":                       # 委屈：眼角一滴泪，随呼吸轻晃
+        tx = cx + 0.235 * s
+        ty = eye_y + ehh * 0.62 + math.sin(t * 3.2) * 0.014 * s
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#8EC9E8"))
+        tp = QPainterPath()
+        tp.moveTo(tx, ty - 0.058 * s)
+        tp.quadTo(tx + 0.045 * s, ty + 0.012 * s, tx, ty + 0.058 * s)
+        tp.quadTo(tx - 0.045 * s, ty + 0.012 * s, tx, ty - 0.058 * s)
+        tp.closeSubpath()
+        p.drawPath(tp)
+        p.setBrush(QColor(255, 255, 255, 170))
+        p.drawEllipse(QRectF(tx - 0.021 * s, ty - 0.014 * s, 0.021 * s, 0.026 * s))
+    elif fx == "sweat":                    # 紧张：额头一颗汗
+        sx = cx + 0.28 * s
+        sy = cy - 0.38 * s + math.sin(t * 4.0) * 0.016 * s
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#A8DCEF"))
+        sp = QPainterPath()
+        sp.moveTo(sx, sy - 0.050 * s)
+        sp.quadTo(sx + 0.038 * s, sy + 0.010 * s, sx, sy + 0.050 * s)
+        sp.quadTo(sx - 0.038 * s, sy + 0.010 * s, sx, sy - 0.050 * s)
+        sp.closeSubpath()
+        p.drawPath(sp)
+    elif fx == "anger":                    # 生气：额头井字符号
+        ax, ay = cx + 0.30 * s, cy - 0.40 * s
+        p.setPen(_line(QColor("#E05A5A"), lw * 1.25))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        for dx in (-0.048, 0.048):
+            p.drawLine(QPointF(ax + dx * s, ay - 0.058 * s),
+                       QPointF(ax + dx * s, ay + 0.058 * s))
+        for dy in (-0.022, 0.022):
+            p.drawLine(QPointF(ax - 0.072 * s, ay + dy * s),
+                       QPointF(ax + 0.072 * s, ay + dy * s))
 
     # ---- 半身：手臂 + 爪掌 + 道具 ----
     if body:
