@@ -992,7 +992,8 @@ def draw_cat(p, cx, cy, s, colors=None, blink=False, excited=False, sleepy=False
                                      ew2 * 0.30, ehh * 0.16))
         # A2：上眼睑（柔和覆盖，laugh 弧形的闭合线）
         if lid > 0.02:
-            cover = ehh * lid
+            # 非线性映射：高 lid 值增幅放缓，避免眼珠被盖太多
+            cover = ehh * (lid ** 1.45) * 0.78
             fur_up = QColor(colors.get("fur_l") or colors["fur"])
             ux = ex + lx                       # 眼睑随眼球一起移动
             uy = eye_y + ly * 0.90

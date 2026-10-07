@@ -95,9 +95,9 @@ class _PaintMixin:
         if self.blink_t < 0.18 and not still:
             eye_lid = math.sin((self.blink_t / 0.18) * math.pi)
         if meowing:
-            eye_lid = max(eye_lid, 0.62)
+            eye_lid = max(eye_lid, 0.35)        # 舒适眯眼，不要像困死
         elif sleepy:
-            eye_lid = max(eye_lid, 0.48)
+            eye_lid = max(eye_lid, 0.30)        # 轻微犯困，保留精神
         # C1：情绪口型（心情打卡 > 快下班的兴奋）
         ms = getattr(self, "mood_score", None)
         mouth = None
